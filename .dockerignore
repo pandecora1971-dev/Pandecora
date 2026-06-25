@@ -1,0 +1,24 @@
+node_modules
+.next
+.git
+.gitignore
+
+# Local uploads (mounted as a volume at runtime)
+uploads/*
+!uploads/.gitkeep
+
+# Environment secrets — injected via env_file or secrets at runtime
+.env
+.env.local
+.env.*.local
+
+# Dev / editor noise
+*.log
+npm-debug.log*
+.DS_Store
+.vscode
+.idea
+coverage
+
+# Prisma migration history (not needed in image)
+prisma/migrations

@@ -1,0 +1,138 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# robots.txt — Secure Incident Platform
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Standard crawlers: no public pages require indexing beyond the home page.
+# All authenticated and admin routes are disallowed.
+#
+
+User-agent: *
+Disallow: /admin/
+Disallow: /report/
+Disallow: /api/
+Disallow: /uploads/
+Disallow: /verify-email/
+Allow: /
+Allow: /about/
+Allow: /contact/
+Allow: /login/
+Allow: /signup/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AI training crawlers — fully blocked
+# This site does not consent to its content being used for AI/ML model training,
+# dataset construction, or any automated large-scale data collection.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# OpenAI
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: OAI-SearchBot
+Disallow: /
+
+# Anthropic
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+# Google AI / Gemini training
+User-agent: Google-Extended
+Disallow: /
+
+# Apple
+User-agent: Applebot-Extended
+Disallow: /
+
+# Meta / Facebook
+User-agent: FacebookBot
+Disallow: /
+
+# Amazon
+User-agent: Amazonbot
+Disallow: /
+
+# Common Crawl (used heavily for LLM training datasets)
+User-agent: CCBot
+Disallow: /
+
+# Cohere
+User-agent: cohere-ai
+Disallow: /
+
+# Perplexity
+User-agent: PerplexityBot
+Disallow: /
+
+# You.com
+User-agent: YouBot
+Disallow: /
+
+# ByteDance / TikTok
+User-agent: Bytespider
+Disallow: /
+
+# Diffbot (ML data extraction)
+User-agent: Diffbot
+Disallow: /
+
+# Turnitin AI
+User-agent: TurnitinBot
+Disallow: /
+
+# img2dataset
+User-agent: img2dataset
+Disallow: /
+
+# AI2 (Allen Institute)
+User-agent: AI2Bot
+Disallow: /
+
+# Omgili / Webz.io (news/data mining)
+User-agent: omgili
+Disallow: /
+
+User-agent: omgilibot
+Disallow: /
+
+# PetalBot
+User-agent: PetalBot
+Disallow: /
+
+# DataForSeo
+User-agent: DataForSeoBot
+Disallow: /
+
+# Scrapy (generic scraping framework)
+User-agent: Scrapy
+Disallow: /
+
+# iaskspider / iAsk AI
+User-agent: iaskspider
+Disallow: /
+
+# Timpibot
+User-agent: Timpibot
+Disallow: /
+
+# Sidetrade
+User-agent: SidetradeIndexer
+Disallow: /
+
+# Webz.io
+User-agent: Webzio-Extended
+Disallow: /
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sitemap
+# ──────────────────────────────────────────────────────────────────────────────
+
+Sitemap: https://yourdomain.com/sitemap.xml

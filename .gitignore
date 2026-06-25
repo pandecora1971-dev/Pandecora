@@ -1,0 +1,36 @@
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ─── Next.js ──────────────────────────────────────────────────────────────────
+/.next/
+/out/
+
+# ─── Build output ─────────────────────────────────────────────────────────────
+/build
+
+# ─── Environment secrets ──────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+# Keep .env.example in version control
+
+# ─── File uploads ─────────────────────────────────────────────────────────────
+/uploads/*
+!/uploads/.gitkeep
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+/pgdata
+/prisma/migrations
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+.DS_Store
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+next-env.d.ts
+coverage

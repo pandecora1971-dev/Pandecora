@@ -1,0 +1,366 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum TeacherOrStudent {
+  TEACHER
+  STUDENT
+  DOCTOR
+  ENGINEER
+  LAWYER
+  JOURNALIST
+  AGRICULTURIST
+  OTHERS
+}
+
+enum InstitutionType {
+  UNIVERSITY
+  SCHOOL
+  COLLEGE
+  MADRASA
+  OTHERS
+}
+
+// Only meaningful when institutionType == UNIVERSITY
+enum UniversityType {
+  PUBLIC
+  PRIVATE
+  OTHERS
+}
+
+enum IncidentCategory {
+  HARASSMENT_BULLYING
+  BLACKMAIL_THREATS
+  CORRUPTION_BRIBERY_EXTORTION
+  DISCRIMINATION_BIAS
+  ACADEMIC_MALPRACTICE
+  THEFT_PROPERTY_DAMAGE
+  OTHER_CRIME_POLICY_VIOLATION
+}
+
+enum UrgencyLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AuditAction {
+  VIEW
+  DOWNLOAD
+  DELETE
+  LOGIN
+  LOGOUT
+  STATUS_CHANGE
+  SIGNUP
+  SUBMIT_REPORT
+  SAVE_DRAFT
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id   String @id @default(uuid())
+  name String
+
+  // Email is AES-256-GCM encrypted. SHA-256 hash stored separately for
+  // unique-constraint and lookup queries (plaintext can't be queried on cipher).
+  encryptedEmail String
+  emailIV        String
+  emailTag       String
+  emailHash      String @unique
+
+  // Phone stored encrypted; no hash needed (not used as lookup key)
+  encryptedPhone String
+  phoneIV        String
+  phoneTag       String
+
+  hashedPassword   String
+  role             Role             @default(USER)
+  teacherOrStudent TeacherOrStudent
+
+  // Location
+  division        String
+  district        String
+  upazila         String
+  specificAddress String?
+
+  // Institution (academic users: TEACHER / STUDENT)
+  institutionType InstitutionType?
+  universityType  UniversityType?
+  institutionName String?
+  department      String?
+
+  // Professional details (non-academic users)
+  licenseNumber    String?  // BMDC / Bar Council / IEB / Press card
+  organizationName String?  // Hospital / Firm / Media house / Company
+  specialization   String?  // Medical specialty / Engineering discipline / Law area / Beat
+
+  emailVerified   Boolean   @default(false)
+  emailVerifiedAt DateTime?
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  submissions Submission[]
+  sessions    Session[]
+  verificationTokens EmailVerificationToken[]
+
+  @@index([emailHash])
+  @@index([createdAt])
+}
+
+// ─── Email verification tokens ────────────────────────────────────────────────
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // SHA-256 of the raw token; raw token is never stored
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
+// ─── Session ──────────────────────────────────────────────────────────────────
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ─── Submission ───────────────────────────────────────────────────────────────
+
+model Submission {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Incident classification — stored as plaintext enums (not PII)
+  category     IncidentCategory
+  urgencyLevel UrgencyLevel
+
+  // Free-text description is PII — stored AES-256-GCM encrypted
+  encryptedDescription String
+  descriptionIV        String
+  descriptionTag       String
+
+  // Incident evidence attached by the reporter
+  evidenceFiles EvidenceFile[]
+  links         Link[]
+
+  // Accused person — all fields are PII, stored encrypted
+  encryptedAccusedName    String?
+  accusedNameIV           String?
+  accusedNameTag          String?
+  encryptedAccusedDetails String?
+  accusedDetailsIV        String?
+  accusedDetailsTag       String?
+
+  accusedEvidenceFiles AccusedEvidenceFile[]
+  accusedLinks         AccusedLink[]
+
+  // Additional responsible party — name + details encrypted
+  encryptedAdditionalName    String?
+  additionalNameIV           String?
+  additionalNameTag          String?
+  encryptedAdditionalDetails String?
+  additionalDetailsIV        String?
+  additionalDetailsTag       String?
+
+  additionalEvidenceFiles AdditionalEvidenceFile[]
+  additionalLinks         AdditionalLink[]
+
+  // Non-PII metadata stored as plaintext
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+  @@index([urgencyLevel])
+  @@index([createdAt])
+  @@index([status])
+}
+
+// ─── Evidence files (reporter) ────────────────────────────────────────────────
+
+model EvidenceFile {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  // The storage path/key itself is encrypted to prevent leaking directory structure
+  storagePath           String
+  encryptedOriginalName String
+  nameIV                String
+  nameTag               String
+
+  // Non-PII metadata left as plaintext for admin filtering
+  fileType String // MIME type
+  fileSize Int    // bytes
+
+  // IV and auth tag used to encrypt the file content in object storage
+  fileIV  String
+  fileTag String
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// ─── Evidence files (accused) ─────────────────────────────────────────────────
+
+model AccusedEvidenceFile {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  storagePath           String
+  encryptedOriginalName String
+  nameIV                String
+  nameTag               String
+  fileType              String
+  fileSize              Int
+  fileIV                String
+  fileTag               String
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// ─── Links (reporter) ─────────────────────────────────────────────────────────
+
+model Link {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  encryptedUrl String
+  urlIV        String
+  urlTag       String
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// ─── Links (accused) ──────────────────────────────────────────────────────────
+
+model AccusedLink {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  encryptedUrl String
+  urlIV        String
+  urlTag       String
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// ─── Evidence files (additional responsible party) ────────────────────────────
+
+model AdditionalEvidenceFile {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  storagePath           String
+  encryptedOriginalName String
+  nameIV                String
+  nameTag               String
+  fileType              String
+  fileSize              Int
+  fileIV                String
+  fileTag               String
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// ─── Links (additional responsible party) ─────────────────────────────────────
+
+model AdditionalLink {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  encryptedUrl String
+  urlIV        String
+  urlTag       String
+
+  createdAt DateTime @default(now())
+
+  @@index([submissionId])
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String      @id @default(uuid())
+
+  // Admin actor — set for admin-initiated events
+  adminId   String?
+  adminName String?
+
+  // User actor — set for user-initiated events (login, signup, submit, etc.)
+  userId    String?
+  userName  String?
+
+  action    AuditAction
+  targetId   String?
+  targetType String?
+  ipAddress  String?
+  userAgent  String?
+  details    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ─── Contact messages ─────────────────────────────────────────────────────────
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  message   String
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([email])
+}
