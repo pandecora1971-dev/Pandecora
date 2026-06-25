@@ -9,25 +9,19 @@ export async function sendVerificationEmail(
 ): Promise<void> {
   const verifyUrl = `${APP_URL}/verify-email?token=${rawToken}`;
 
-  const gmailUser = process.env.EMAIL_GMAIL_USER;
-  const gmailPass = process.env.EMAIL_GMAIL_PASS;
+  const mjApiKey = process.env.MAILJET_API_KEY;
+  const mjSecret = process.env.MAILJET_SECRET_KEY;
+  const fromEmail = process.env.EMAIL_FROM_ADDRESS ?? "pandecora1971@gmail.com";
+  const fromName  = process.env.EMAIL_FROM_NAME    ?? "Pandecora";
 
-  if (gmailUser && gmailPass) {
-    await sendViaGmail(toEmail, toName, verifyUrl, gmailUser, gmailPass);
-    return;
-  }
-
-  const resendKey = process.env.RESEND_API_KEY;
-  const fromAddr  = process.env.EMAIL_FROM ?? "Pandecora <onboarding@resend.dev>";
-
-  if (resendKey) {
-    await sendViaResend(toEmail, toName, verifyUrl, resendKey, fromAddr);
+  if (mjApiKey && mjSecret) {
+    await sendViaMailjet(toEmail, toName, verifyUrl, mjApiKey, mjSecret, fromEmail, fromName);
     return;
   }
 
   // Dev fallback — print link to console
   console.log(
-    `\n[email] No email provider configured — verification link:\n` +
+    `\n[email] No provider configured — verification link:\n` +
     `  To:   ${toEmail}\n` +
     `  Link: ${verifyUrl}\n`
   );
@@ -41,64 +35,52 @@ export async function sendResendVerificationEmail(
   return sendVerificationEmail(toEmail, toName, rawToken);
 }
 
-// ─── Gmail SMTP ───────────────────────────────────────────────────────────────
+// ─── Mailjet ──────────────────────────────────────────────────────────────────
 
-async function sendViaGmail(
-  to: string,
-  name: string,
-  verifyUrl: string,
-  user: string,
-  pass: string
-): Promise<void> {
-  const nodemailer = await import("nodemailer");
-
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user, pass },
-  });
-
-  try {
-    const info = await transporter.sendMail({
-      from:    `"Pandecora" <${user}>`,
-      to,
-      subject: "Verify your email — Pandecora",
-      html:    buildHtml(name, verifyUrl),
-      text:    buildText(name, verifyUrl),
-    });
-    console.log(`[email] Sent via Gmail to ${to} — messageId: ${info.messageId}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[email] Gmail SMTP error: ${msg}\n  Link: ${verifyUrl}`);
-    throw new Error(`Gmail send failed: ${msg}`);
-  }
-}
-
-// ─── Resend ───────────────────────────────────────────────────────────────────
-
-async function sendViaResend(
+async function sendViaMailjet(
   to: string,
   name: string,
   verifyUrl: string,
   apiKey: string,
-  from: string
+  secretKey: string,
+  fromEmail: string,
+  fromName: string
 ): Promise<void> {
-  const { Resend } = await import("resend");
-  const resend = new Resend(apiKey);
+  const credentials = Buffer.from(`${apiKey}:${secretKey}`).toString("base64");
 
-  const { error } = await resend.emails.send({
-    from,
-    to:      [to],
-    subject: "Verify your email — Pandecora",
-    html:    buildHtml(name, verifyUrl),
-    text:    buildText(name, verifyUrl),
+  const res = await fetch("https://api.mailjet.com/v3.1/send", {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${credentials}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      Messages: [
+        {
+          From: { Email: fromEmail, Name: fromName },
+          To:   [{ Email: to, Name: name }],
+          Subject: "Verify your email — Pandecora",
+          HTMLPart: buildHtml(name, verifyUrl),
+          TextPart: buildText(name, verifyUrl),
+        },
+      ],
+    }),
   });
 
-  if (error) {
-    console.error(
-      `[email] Resend error — ${error.name}: ${error.message}\n  Link: ${verifyUrl}`
-    );
-    throw new Error(`Resend failed: ${error.message}`);
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[email] Mailjet error ${res.status}: ${body}\n  Link: ${verifyUrl}`);
+    throw new Error(`Mailjet send failed: ${res.status}`);
   }
+
+  const data = await res.json() as { Messages?: { Status: string }[] };
+  const status = data.Messages?.[0]?.Status;
+  if (status !== "success") {
+    console.error(`[email] Mailjet status: ${status}\n  Link: ${verifyUrl}`);
+    throw new Error(`Mailjet send status: ${status}`);
+  }
+
+  console.log(`[email] Sent via Mailjet to ${to}`);
 }
 
 // ─── Email templates ──────────────────────────────────────────────────────────
@@ -159,7 +141,7 @@ function buildText(name: string, verifyUrl: string): string {
   return (
     `Hi ${name},\n\n` +
     `Thanks for registering with Pandecora.\n\n` +
-    `Verify your email address by visiting:\n${verifyUrl}\n\n` +
+    `Verify your email:\n${verifyUrl}\n\n` +
     `This link expires in 24 hours.\n\n` +
     `If you didn't create this account, ignore this email.`
   );
