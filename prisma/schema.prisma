@@ -351,6 +351,14 @@ model AuditLog {
   @@index([action])
 }
 
+// ─── File blobs (encrypted file content stored in DB) ────────────────────────
+
+model FileBlob {
+  id        String   @id @default(uuid())
+  data      Bytes
+  createdAt DateTime @default(now())
+}
+
 // ─── Contact messages ─────────────────────────────────────────────────────────
 
 model ContactMessage {

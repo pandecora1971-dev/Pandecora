@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import Busboy from "busboy";
-import fs from "fs";
-import path from "path";
-import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { encrypt, createEncryptCipher } from "@/lib/encryption";
@@ -10,7 +7,6 @@ import { rateLimitByIP, rateLimitByUser } from "@/lib/rate-limit";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const UPLOAD_DIR        = path.join(process.cwd(), "uploads");
 const MAGIC_PROBE       = 12;                       // bytes needed for header check
 const UPLOAD_TIMEOUT_MS = 10 * 60_000;              // 10 minutes per file
 const MAX_REGULAR_SIZE  = 20 * 1024 * 1024;         // 20 MB per image/doc
@@ -224,17 +220,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Expected multipart/form-data." }, { status: 400 });
   }
 
-  await fs.promises.mkdir(UPLOAD_DIR, { recursive: true });
-
-  // tempFiles tracks paths of in-progress encrypted files.
-  // On client disconnect, all paths still in this set are deleted.
-  const tempFiles = new Set<string>();
-
   req.signal.addEventListener("abort", () => {
-    for (const fp of tempFiles) {
-      fs.unlink(fp, () => {});
-      uploadLog("warn", "aborted_cleanup", { userId, ip, file: path.basename(fp) });
-    }
+    uploadLog("warn", "aborted", { userId, ip });
   });
 
   return new Promise<NextResponse>((resolveRequest) => {
@@ -284,16 +271,11 @@ export async function POST(req: NextRequest) {
       if (!isVideo && regularCount >= MAX_REGULAR_COUNT) { stream.resume(); return; }
       isVideo ? videoCount++ : regularCount++;
 
-      // Set up streaming cipher → disk
+      // Collect encrypted chunks in memory → store in DB
       const { cipher, iv } = createEncryptCipher();
-      const key      = `${uuidv4()}.enc`;
-      const filePath = path.join(UPLOAD_DIR, key);
-      const ws       = fs.createWriteStream(filePath);
-      cipher.pipe(ws);
-      tempFiles.add(filePath);
+      const encryptedChunks: Buffer[] = [];
+      cipher.on("data", (chunk: Buffer) => encryptedChunks.push(chunk));
 
-      // All per-file state + event wiring lives inside this Promise executor
-      // so resolve/reject are in scope without definite-assignment assertions.
       uploads.push(
         new Promise<UploadedFileResult>((res, rej) => {
 
@@ -302,20 +284,11 @@ export async function POST(req: NextRequest) {
           let fileRejected = false;
           let fileBytes    = 0;
 
-          // ── helpers ──────────────────────────────────────────────────────
-
-          function cleanup() {
-            cipher.destroy();
-            ws.destroy();
-            fs.promises.unlink(filePath).catch(() => {});
-            tempFiles.delete(filePath);
-          }
-
           function rejectFile(reason: string) {
             if (fileRejected) return;
             fileRejected = true;
-            stream.resume(); // drain so busboy can continue / finish
-            cleanup();
+            stream.resume();
+            cipher.destroy();
             clearTimeout(timeoutId);
             uploadLog("warn", "file_rejected", { userId, ip, filename: safeName, reason });
             rej(new Error(reason));
@@ -328,14 +301,11 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // ── per-file timeout ──────────────────────────────────────────────
           const timeoutId = setTimeout(() => {
             stream.destroy(new Error("timeout"));
-            uploadLog("warn", "timeout", { userId, ip, filename: safeName, fileBytes });
             rejectFile("Upload timed out after 10 minutes. Please try again.");
           }, UPLOAD_TIMEOUT_MS);
 
-          // ── data: size-gate → magic-gate → cipher ─────────────────────────
           stream.on("data", (chunk: Buffer) => {
             if (fileRejected) return;
 
@@ -343,11 +313,7 @@ export async function POST(req: NextRequest) {
             totalBytesInFlight += chunk.length;
 
             if (fileBytes > maxSize) {
-              rejectFile(
-                isVideo
-                  ? "Video exceeds the 2 GB limit."
-                  : `"${safeName}" exceeds the 20 MB limit.`
-              );
+              rejectFile(isVideo ? "Video exceeds the 2 GB limit." : `"${safeName}" exceeds the 20 MB limit.`);
               return;
             }
             if (totalBytesInFlight > quotaLeft) {
@@ -355,32 +321,25 @@ export async function POST(req: NextRequest) {
               return;
             }
 
-            // Magic-byte gate: buffer first MAGIC_PROBE bytes before ciphering
             if (!magicPassed) {
               magicBuf = Buffer.concat([magicBuf, chunk]);
               if (magicBuf.length >= MAGIC_PROBE) {
                 if (!checkMagicBytes(magicBuf.slice(0, MAGIC_PROBE), mimeType)) {
-                  rejectFile(
-                    `"${safeName}" failed content validation. ` +
-                    `File header does not match declared type "${mimeType}".`
-                  );
+                  rejectFile(`"${safeName}" failed content validation. File header does not match declared type "${mimeType}".`);
                   return;
                 }
                 magicPassed = true;
-                writeToCipher(magicBuf);     // flush buffered probe bytes
+                writeToCipher(magicBuf);
                 magicBuf = Buffer.alloc(0);
               }
-              return; // still accumulating probe bytes
+              return;
             }
 
             writeToCipher(chunk);
           });
 
-          // ── end: validate tiny files, finalize cipher ─────────────────────
           stream.on("end", () => {
             if (fileRejected) return;
-
-            // Stream ended before we collected MAGIC_PROBE bytes (very small file)
             if (!magicPassed) {
               if (!checkMagicBytes(magicBuf, mimeType)) {
                 rejectFile(`"${safeName}" failed content validation (file too small or wrong type).`);
@@ -389,37 +348,30 @@ export async function POST(req: NextRequest) {
               magicPassed = true;
               if (magicBuf.length > 0) writeToCipher(magicBuf);
             }
-
-            cipher.end(); // triggers GCM finalise → ws "finish"
+            cipher.end();
           });
 
           stream.on("error", (err) => {
             clearTimeout(timeoutId);
-            cleanup();
+            cipher.destroy();
             uploadLog("error", "stream_error", { userId, ip, filename: safeName, error: err.message });
             rej(err);
           });
 
-          // ── WriteStream finish: auth-tag + permissions + response ─────────
-          ws.on("finish", () => {
+          cipher.on("end", async () => {
             if (fileRejected) return;
             clearTimeout(timeoutId);
-            tempFiles.delete(filePath);
-
             try {
-              const tag = cipher.getAuthTag().toString("hex");
+              const tag       = cipher.getAuthTag().toString("hex");
+              const encrypted = Buffer.concat(encryptedChunks);
 
-              // Restrict file to owner read/write only (600)
-              fs.promises.chmod(filePath, 0o600).catch(() => {});
-
+              const blob = await db.fileBlob.create({ data: { data: encrypted } });
               const nameEnc = encrypt(safeName);
 
-              uploadLog("info", "file_stored", {
-                userId, ip, filename: safeName, mimeType, fileBytes, key,
-              });
+              uploadLog("info", "file_stored_db", { userId, ip, filename: safeName, mimeType, fileBytes, blobId: blob.id });
 
               res({
-                key,
+                key:                   blob.id,
                 fileIV:                iv,
                 fileTag:               tag,
                 encryptedOriginalName: nameEnc.ciphertext,
@@ -429,15 +381,13 @@ export async function POST(req: NextRequest) {
                 fileSize:              fileBytes,
               });
             } catch (err) {
-              fs.promises.unlink(filePath).catch(() => {});
-              rej(err instanceof Error ? err : new Error("Encryption finalisation failed."));
+              rej(err instanceof Error ? err : new Error("DB write failed."));
             }
           });
 
-          ws.on("error", (err) => {
+          cipher.on("error", (err) => {
             clearTimeout(timeoutId);
-            cleanup();
-            uploadLog("error", "write_error", { userId, ip, filename: safeName, error: err.message });
+            uploadLog("error", "cipher_error", { userId, ip, filename: safeName, error: err.message });
             rej(err);
           });
         })
