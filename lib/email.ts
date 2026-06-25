@@ -57,19 +57,20 @@ async function sendViaGmail(
     auth: { user, pass },
   });
 
-  const { error: _unused, ...info } = await transporter.sendMail({
-    from:    `"Pandecora" <${user}>`,
-    to,
-    subject: "Verify your email — Pandecora",
-    html:    buildHtml(name, verifyUrl),
-    text:    buildText(name, verifyUrl),
-  }).catch((err: unknown) => {
+  try {
+    const info = await transporter.sendMail({
+      from:    `"Pandecora" <${user}>`,
+      to,
+      subject: "Verify your email — Pandecora",
+      html:    buildHtml(name, verifyUrl),
+      text:    buildText(name, verifyUrl),
+    });
+    console.log(`[email] Sent via Gmail to ${to} — messageId: ${info.messageId}`);
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[email] Gmail SMTP error: ${msg}\n  Link: ${verifyUrl}`);
     throw new Error(`Gmail send failed: ${msg}`);
-  });
-
-  console.log(`[email] Sent via Gmail to ${to} — messageId: ${info.messageId}`);
+  }
 }
 
 // ─── Resend ───────────────────────────────────────────────────────────────────
