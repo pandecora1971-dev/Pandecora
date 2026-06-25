@@ -9,13 +9,9 @@ export async function sendVerificationEmail(
 ): Promise<void> {
   const verifyUrl = `${APP_URL}/verify-email?token=${rawToken}`;
 
-  const mjApiKey = process.env.MAILJET_API_KEY;
-  const mjSecret = process.env.MAILJET_SECRET_KEY;
-  const fromEmail = process.env.EMAIL_FROM_ADDRESS ?? "pandecora1971@gmail.com";
-  const fromName  = process.env.EMAIL_FROM_NAME    ?? "Pandecora";
-
-  if (mjApiKey && mjSecret) {
-    await sendViaMailjet(toEmail, toName, verifyUrl, mjApiKey, mjSecret, fromEmail, fromName);
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) {
+    await sendViaResend(toEmail, toName, verifyUrl, resendKey);
     return;
   }
 
@@ -35,52 +31,33 @@ export async function sendResendVerificationEmail(
   return sendVerificationEmail(toEmail, toName, rawToken);
 }
 
-// ─── Mailjet ──────────────────────────────────────────────────────────────────
+// ─── Resend ───────────────────────────────────────────────────────────────────
 
-async function sendViaMailjet(
+async function sendViaResend(
   to: string,
   name: string,
   verifyUrl: string,
-  apiKey: string,
-  secretKey: string,
-  fromEmail: string,
-  fromName: string
+  apiKey: string
 ): Promise<void> {
-  const credentials = Buffer.from(`${apiKey}:${secretKey}`).toString("base64");
+  const from = process.env.EMAIL_FROM ?? "Pandecora <onboarding@resend.dev>";
 
-  const res = await fetch("https://api.mailjet.com/v3.1/send", {
-    method: "POST",
-    headers: {
-      "Authorization": `Basic ${credentials}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      Messages: [
-        {
-          From: { Email: fromEmail, Name: fromName },
-          To:   [{ Email: to, Name: name }],
-          Subject: "Verify your email — Pandecora",
-          HTMLPart: buildHtml(name, verifyUrl),
-          TextPart: buildText(name, verifyUrl),
-        },
-      ],
-    }),
+  const { Resend } = await import("resend");
+  const resend = new Resend(apiKey);
+
+  const { error } = await resend.emails.send({
+    from,
+    to:      [to],
+    subject: "Verify your email — Pandecora",
+    html:    buildHtml(name, verifyUrl),
+    text:    buildText(name, verifyUrl),
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(`[email] Mailjet error ${res.status}: ${body}\n  Link: ${verifyUrl}`);
-    throw new Error(`Mailjet send failed: ${res.status}`);
+  if (error) {
+    console.error(`[email] Resend error: ${error.name}: ${error.message}\n  Link: ${verifyUrl}`);
+    throw new Error(`Resend failed: ${error.message}`);
   }
 
-  const data = await res.json() as { Messages?: { Status: string }[] };
-  const status = data.Messages?.[0]?.Status;
-  if (status !== "success") {
-    console.error(`[email] Mailjet status: ${status}\n  Link: ${verifyUrl}`);
-    throw new Error(`Mailjet send status: ${status}`);
-  }
-
-  console.log(`[email] Sent via Mailjet to ${to}`);
+  console.log(`[email] Sent via Resend to ${to}`);
 }
 
 // ─── Email templates ──────────────────────────────────────────────────────────
