@@ -17,6 +17,10 @@ export const metadata: Metadata = {
     default: "Pandecora",
     template: "%s | Pandecora",
   },
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+  },
   description:
     "Securely report and manage incidents with end-to-end encryption. " +
     "All submissions are confidential and accessible only to authorised reviewers.",

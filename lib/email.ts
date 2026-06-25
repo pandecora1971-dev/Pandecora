@@ -29,13 +29,23 @@ export async function sendVerificationEmail(
   const { Resend } = await import("resend");
   const resend = new Resend(apiKey);
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from:    FROM,
     to:      [toEmail],
     subject: "Verify your email — Pandecora",
     html:    buildHtml(toName, verifyUrl),
     text:    buildText(toName, verifyUrl),
   });
+
+  if (error) {
+    // Always print the link so you can verify locally even if Resend rejects
+    console.error(
+      `\n[email] Resend error — ${error.name}: ${error.message}\n` +
+      `  To:   ${toEmail}\n` +
+      `  Link: ${verifyUrl}\n`
+    );
+    throw new Error(`Email send failed: ${error.message}`);
+  }
 }
 
 /**

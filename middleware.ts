@@ -7,19 +7,27 @@ import { rateLimitByIP, LIMITS } from "@/lib/rate-limit";
 
 // ─── CSP ──────────────────────────────────────────────────────────────────────
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev     = process.env.NODE_ENV !== "production";
+const isVercel  = !!process.env.VERCEL;
 
 function buildCSP(nonce: string): string {
+  // Vercel preview toolbar injects scripts / frames from vercel.live
+  const extraScript  = isVercel ? " https://vercel.live" : "";
+  const extraConnect = isVercel ? " https://vercel.live wss://ws-us3.pusher.com wss://*.pusher.com" : "";
+  const extraFrame   = isVercel ? " https://vercel.live" : "";
+
   return [
     "default-src 'self'",
     isDev
-      ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'`
-      : `script-src 'self' 'nonce-${nonce}'`,
+      ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'${extraScript}`
+      : `script-src 'self' 'nonce-${nonce}'${extraScript}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' blob: data:",
+    "img-src 'self' blob: data: https://vercel.live",
     "font-src 'self'",
-    isDev ? "connect-src 'self' ws: wss:" : "connect-src 'self'",
-    "frame-src 'none'",
+    isDev
+      ? `connect-src 'self' ws: wss:${extraConnect}`
+      : `connect-src 'self'${extraConnect}`,
+    extraFrame ? `frame-src${extraFrame}` : "frame-src 'none'",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",
