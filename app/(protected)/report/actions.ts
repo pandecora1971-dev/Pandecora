@@ -1,7 +1,5 @@
 "use server";
 
-import path from "path";
-import fs from "fs";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/encryption";
@@ -13,14 +11,12 @@ import type { IncidentCategory, UrgencyLevel } from "@prisma/client";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-
 // 5 final submissions per 24 hours; drafts get a more lenient 30/day limit.
 const SUBMIT_LIMIT = { max: 5,  windowMs: 24 * 60 * 60_000 } as const;
 const DRAFT_LIMIT  = { max: 30, windowMs: 24 * 60 * 60_000 } as const;
 
-// UUIDs produced by the upload route look like: <uuid-v4>.enc
-const KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.enc$/;
+// Upload route now stores blobs in DB and returns the blob UUID as the key.
+const KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -94,13 +90,9 @@ async function getAuthenticatedSession() {
 
 // ─── File validation ──────────────────────────────────────────────────────────
 
-async function fileExistsOnDisk(key: string): Promise<boolean> {
-  try {
-    await fs.promises.access(path.join(UPLOAD_DIR, key), fs.constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
+async function fileExistsInDB(key: string): Promise<boolean> {
+  const blob = await db.fileBlob.findUnique({ where: { id: key }, select: { id: true } });
+  return blob !== null;
 }
 
 /**
@@ -116,7 +108,7 @@ async function validateFileMetadata(files: FileMetadata[]): Promise<string | nul
     if (!KEY_PATTERN.test(f.key)) {
       return "Invalid file reference (malformed key).";
     }
-    if (!(await fileExistsOnDisk(f.key))) {
+    if (!(await fileExistsInDB(f.key))) {
       return "One or more files were not found. Please re-upload and try again.";
     }
     if (!Number.isInteger(f.fileSize) || f.fileSize <= 0 || f.fileSize > 2 * 1024 * 1024 * 1024) {
