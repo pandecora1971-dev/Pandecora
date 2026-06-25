@@ -8,8 +8,49 @@ import { rateLimitByUser } from "@/lib/rate-limit";
 import { incidentReportSchema } from "@/lib/validators";
 import { audit } from "@/lib/audit";
 import type { IncidentCategory, UrgencyLevel } from "@prisma/client";
+import type { ZodIssue } from "zod";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+
+// Field-name map and Zod → Bangla error translator
+const FIELD_BN: Record<string, string> = {
+  category:          "বিভাগ",
+  urgencyLevel:      "জরুরী স্তর",
+  description:       "বিবরণ",
+  links:             "প্রমাণের লিঙ্ক",
+  accusedName:       "অভিযুক্তের নাম",
+  accusedDetails:    "অভিযুক্তের বিবরণ",
+  accusedLinks:      "অভিযুক্তের লিঙ্ক",
+  additionalName:    "অতিরিক্ত দায়ীর নাম",
+  additionalDetails: "অতিরিক্ত দায়ীর বিবরণ",
+  additionalLinks:   "অতিরিক্ত দায়ীর লিঙ্ক",
+};
+
+function zodIssuesToBangla(issues: ZodIssue[]): string {
+  for (const issue of issues) {
+    const key   = String(issue.path[0] ?? "");
+    const field = FIELD_BN[key] ?? "তথ্য";
+    if (issue.code === "invalid_enum_value") {
+      return `"${field}" এর মান গ্রহণযোগ্য নয়। পুনরায় নির্বাচন করুন।`;
+    }
+    if (issue.code === "too_small") {
+      if (key === "description") return "বিবরণ কমপক্ষে ১০ অক্ষর হতে হবে।";
+      return `"${field}" এর তথ্য অসম্পূর্ণ।`;
+    }
+    if (issue.code === "too_big") {
+      return `"${field}" এর তথ্য সর্বোচ্চ সীমা অতিক্রম করেছে।`;
+    }
+    const msg = issue.message ?? "";
+    if (/url/i.test(msg) || /invalid url/i.test(msg)) {
+      return `"${field}" তালিকায় একটি অবৈধ লিঙ্ক রয়েছে। সঠিক URL দিন।`;
+    }
+    if (/disallowed|invalid char/i.test(msg)) {
+      return `"${field}" তে অননুমোদিত বিষয়বস্তু রয়েছে।`;
+    }
+    return `"${field}" সঠিকভাবে পূরণ করুন।`;
+  }
+  return "তথ্য যাচাই ব্যর্থ হয়েছে। আপনার প্রবেশ করা তথ্য পুনরায় পরীক্ষা করুন।";
+}
 
 // 5 final submissions per 24 hours; drafts get a more lenient 30/day limit.
 const SUBMIT_LIMIT = { max: 5,  windowMs: 24 * 60 * 60_000 } as const;
@@ -181,8 +222,7 @@ async function persistReport(
       status,
       issues: parsed.error.issues.map((i) => ({ path: i.path, code: i.code })),
     });
-    // Generic message — never reveal which field or the exact constraint
-    return { success: false, error: "Invalid submission data. Please check your entries." };
+    return { success: false, error: zodIssuesToBangla(parsed.error.issues) };
   }
 
   const d = parsed.data;

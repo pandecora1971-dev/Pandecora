@@ -719,9 +719,10 @@ export function ReportForm() {
     accusedFiles.length > 0 || accusedVideoFile !== null || accusedLinks.some((l) => l.trim());
 
   function clientValidate(): string | null {
-    if (!category)           return "একটি বিভাগ নির্বাচন করুন।";
-    if (!urgency)            return "জরুরীের স্তর নির্বাচন করুন।";
-    if (!description.trim()) return "বিবরণ লেখা আবশ্যক।";
+    if (!category)                        return "একটি বিভাগ নির্বাচন করুন।";
+    if (!urgency)                         return "জরুরী স্তর নির্বাচন করুন।";
+    if (!description.trim())              return "বিবরণ লেখা আবশ্যক।";
+    if (description.trim().length < 10)   return "বিবরণ কমপক্ষে ১০ অক্ষর হতে হবে।";
     if (description.length > MAX_DESC_CHARS)
       return `বিবরণ সর্বোচ্চ ${MAX_DESC_CHARS} অক্ষর হতে পারবে।`;
     if (!hasEvidenceEvidence)

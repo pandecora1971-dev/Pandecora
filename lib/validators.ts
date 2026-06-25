@@ -309,6 +309,8 @@ export const incidentReportSchema = z.object({
       "CORRUPTION_BRIBERY_EXTORTION",
       "DISCRIMINATION_BIAS",
       "ACADEMIC_MALPRACTICE",
+      "EXPULSION_DISMISSAL",
+      "SUSPENSION_RELIEF",
       "THEFT_PROPERTY_DAMAGE",
       "OTHER_CRIME_POLICY_VIOLATION",
     ] as const,
