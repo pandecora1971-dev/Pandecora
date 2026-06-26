@@ -110,16 +110,16 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith("/api/auth/")) {
     const segment = pathname.slice("/api/auth/".length).split("/")[0];
     if (segment === "login") {
-      const rl = rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "mw:login");
+      const rl = await rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "mw:login");
       if (!rl.success) return tooManyRequests(rl.resetIn, nonce);
     } else if (segment === "signup") {
-      const rl = rateLimitByIP(ip, LIMITS.SIGNUP.max, LIMITS.SIGNUP.windowMs, "mw:signup");
+      const rl = await rateLimitByIP(ip, LIMITS.SIGNUP.max, LIMITS.SIGNUP.windowMs, "mw:signup");
       if (!rl.success) return tooManyRequests(rl.resetIn, nonce);
     }
   }
 
   if (pathname === "/api/upload") {
-    const rl = rateLimitByIP(ip, LIMITS.UPLOAD.max, LIMITS.UPLOAD.windowMs, "mw:upload");
+    const rl = await rateLimitByIP(ip, LIMITS.UPLOAD.max, LIMITS.UPLOAD.windowMs, "mw:upload");
     if (!rl.success) return tooManyRequests(rl.resetIn, nonce);
   }
 

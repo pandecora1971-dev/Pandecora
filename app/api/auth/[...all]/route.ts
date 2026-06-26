@@ -45,7 +45,7 @@ async function handleGetSession(req: NextRequest) {
 
 async function handleLogin(req: NextRequest) {
   const ip = clientIp(req) ?? "unknown";
-  const rl = rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "login");
+  const rl = await rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "login");
   if (!rl.success) {
     return json(
       { error: "Too many attempts. Please try again later." },
@@ -124,7 +124,7 @@ async function handleLogout(req: NextRequest) {
 
 async function handleSignup(req: NextRequest) {
   const ip = clientIp(req) ?? "unknown";
-  const rl = rateLimitByIP(ip, LIMITS.SIGNUP.max, LIMITS.SIGNUP.windowMs, "signup");
+  const rl = await rateLimitByIP(ip, LIMITS.SIGNUP.max, LIMITS.SIGNUP.windowMs, "signup");
   if (!rl.success) {
     return json(
       { error: "Too many attempts. Please try again later." },

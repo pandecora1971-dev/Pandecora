@@ -22,7 +22,7 @@ export async function loginAction(formData: FormData): Promise<LoginActionState>
   // ── IP-based rate limit ────────────────────────────────────────────────────
   // Shares the "login" counter with the /api/auth/login route so attempts
   // across both entry points are counted together.
-  const rl = rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "login");
+  const rl = await rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "login");
   if (!rl.success) {
     return {
       error: `Too many login attempts. Please try again in ${Math.ceil(rl.resetIn / 60_000)} minute(s).`,

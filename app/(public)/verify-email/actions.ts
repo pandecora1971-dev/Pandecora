@@ -74,7 +74,7 @@ export async function resendVerification(formData: FormData): Promise<ResendResu
     "unknown";
 
   // Rate limit: 3 resend attempts per hour per IP
-  const rl = rateLimitByIP(ip, 3, 60 * 60_000, "verify-resend");
+  const rl = await rateLimitByIP(ip, 3, 60 * 60_000, "verify-resend");
   if (!rl.success) {
     return { success: false, error: "Too many resend attempts. Please try again later." };
   }

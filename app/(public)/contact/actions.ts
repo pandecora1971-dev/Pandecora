@@ -19,7 +19,7 @@ export async function sendContactMessage(
     "unknown";
 
   // 3 messages per IP per hour
-  const rl = rateLimitByIP(ip, 3, 60 * 60_000, "contact");
+  const rl = await rateLimitByIP(ip, 3, 60 * 60_000, "contact");
   if (!rl.success) {
     return {
       success: false,

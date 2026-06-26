@@ -1,31 +1,96 @@
 /**
- * In-memory fixed-window rate limiter — no external dependencies.
+ * Rate limiter with two backends:
  *
- * Keyed by an arbitrary string (IP + context, or user ID + context) so
- * different endpoints maintain independent buckets even when the numeric
- * limits happen to match.
+ *   1. Upstash Redis (production, multi-instance)
+ *      Enabled when UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set.
+ *      Uses a sliding-window algorithm shared across all serverless instances,
+ *      which is the only approach that correctly limits at 20k concurrent users
+ *      on Vercel (each invocation is a separate process with no shared memory).
  *
- * NOTE: State is process-local. In a multi-instance deployment (Vercel
- * serverless, PM2 cluster) each instance keeps its own counters. Replace
- * the Map with a shared store (e.g. Upstash Redis) before scaling
- * horizontally.
+ *   2. In-memory fixed-window (dev / local testing)
+ *      Falls back automatically when Upstash env vars are absent. Accurate for
+ *      single-process deployments; not suitable for production at scale.
+ *
+ * To enable Redis on Vercel:
+ *   1. Create a free Upstash Redis database at console.upstash.com
+ *   2. Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN to Vercel env vars
  */
 
-// ─── Store ────────────────────────────────────────────────────────────────────
+// ─── Result type ──────────────────────────────────────────────────────────────
+
+export interface RateLimitResult {
+  success: boolean;
+  remaining: number;
+  resetIn: number; // ms until window resets (use for Retry-After headers)
+}
+
+// Type-only import — erased at compile time, zero runtime cost when Redis is not used.
+import type { Ratelimit } from "@upstash/ratelimit";
+
+// ─── Backend selection ────────────────────────────────────────────────────────
+
+const useRedis =
+  typeof process !== "undefined" &&
+  !!process.env.UPSTASH_REDIS_REST_URL &&
+  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+// ─── Upstash Redis backend ────────────────────────────────────────────────────
+
+let redisRatelimit: ((key: string, limit: number, windowMs: number) => Promise<RateLimitResult>) | null = null;
+
+if (useRedis) {
+  // Dynamic import so the packages are never bundled when Redis is not configured.
+  // Both @upstash/redis and @upstash/ratelimit are lightweight HTTP-only clients
+  // that work in Edge and Node.js serverless runtimes.
+  const initRedis = async () => {
+    const { Redis } = await import("@upstash/redis");
+    const { Ratelimit } = await import("@upstash/ratelimit");
+
+    const redis = new Redis({
+      url:   process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
+
+    const cache = new Map<string, Ratelimit>();
+
+    return async (key: string, limit: number, windowMs: number): Promise<RateLimitResult> => {
+      const bucketKey = `${limit}:${windowMs}`;
+      if (!cache.has(bucketKey)) {
+        cache.set(
+          bucketKey,
+          new Ratelimit({
+            redis,
+            limiter: Ratelimit.slidingWindow(limit, `${windowMs}ms`),
+            prefix:  "@ratelimit",
+          })
+        );
+      }
+      const rl = cache.get(bucketKey)!;
+      const result = await rl.limit(key);
+      return {
+        success:   result.success,
+        remaining: result.remaining,
+        resetIn:   result.reset - Date.now(),
+      };
+    };
+  };
+
+  // Eagerly initialise to avoid cold-start latency on the first rate-limited request.
+  initRedis().then((fn) => { redisRatelimit = fn; }).catch(() => {
+    console.warn("[rate-limit] Upstash Redis init failed — falling back to in-memory limiter");
+  });
+}
+
+// ─── In-memory backend (dev / single-process fallback) ───────────────────────
 
 interface Entry {
   count: number;
-  resetTime: number; // epoch ms — the moment this window expires
+  resetTime: number;
 }
 
 const store = new Map<string, Entry>();
 
-/**
- * Purge expired entries every 60 s.
- *
- * unref() lets Node.js exit naturally even while the timer is pending —
- * important for test runners and short-lived serverless cold-starts.
- */
+// Purge expired entries every 60 s. unref() allows Node to exit naturally.
 const _cleanup = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store) {
@@ -33,130 +98,71 @@ const _cleanup = setInterval(() => {
   }
 }, 60_000);
 
-// The timer type differs between Node.js (object with .unref()) and browsers
-// (number). Guard so this module is safe in both runtimes.
 if (typeof (_cleanup as unknown as NodeJS.Timeout).unref === "function") {
   (_cleanup as unknown as NodeJS.Timeout).unref();
 }
 
-// ─── Result type ──────────────────────────────────────────────────────────────
-
-export interface RateLimitResult {
-  /** true → request is within quota and should be allowed. */
-  success: boolean;
-  /** How many more requests are allowed in the current window (0 when blocked). */
-  remaining: number;
-  /** Milliseconds until the current window resets (use for Retry-After headers). */
-  resetIn: number;
-}
-
-// ─── Core fixed-window counter ────────────────────────────────────────────────
-
-/**
- * Increment the counter for `key` and return whether the request is allowed.
- * A new window opens whenever the previous one expires.
- */
-function checkLimit(key: string, limit: number, windowMs: number): RateLimitResult {
-  const now = Date.now();
+function checkInMemory(key: string, limit: number, windowMs: number): RateLimitResult {
+  const now   = Date.now();
   const entry = store.get(key);
 
-  // ── New or expired window → reset ─────────────────────────────────────────
   if (!entry || entry.resetTime <= now) {
     store.set(key, { count: 1, resetTime: now + windowMs });
-    return {
-      success: true,
-      remaining: limit - 1,
-      resetIn: windowMs,
-    };
+    return { success: true, remaining: limit - 1, resetIn: windowMs };
   }
 
-  // ── Limit not yet reached → increment and allow ───────────────────────────
   if (entry.count < limit) {
     entry.count++;
-    return {
-      success: true,
-      remaining: limit - entry.count,
-      resetIn: entry.resetTime - now,
-    };
+    return { success: true, remaining: limit - entry.count, resetIn: entry.resetTime - now };
   }
 
-  // ── Limit exceeded → reject without incrementing ──────────────────────────
-  return {
-    success: false,
-    remaining: 0,
-    resetIn: entry.resetTime - now,
-  };
+  return { success: false, remaining: 0, resetIn: entry.resetTime - now };
+}
+
+// ─── Unified check ────────────────────────────────────────────────────────────
+
+async function checkLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  if (redisRatelimit) {
+    try {
+      return await redisRatelimit(key, limit, windowMs);
+    } catch {
+      // Redis call failed — degrade gracefully to in-memory
+    }
+  }
+  return checkInMemory(key, limit, windowMs);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * Rate-limits an unauthenticated request by client IP address.
- *
- * @param ip       The client IP extracted from x-forwarded-for / x-real-ip.
- * @param limit    Maximum requests allowed per window.
- * @param windowMs Window length in milliseconds.
- * @param context  Bucket namespace — separate contexts with the same IP and
- *                 identical limit/windowMs will not share a counter.
- *
- * @example
- * const rl = rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "login");
- * if (!rl.success) {
- *   return Response.json(
- *     { error: "Too many attempts" },
- *     { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetIn / 1000)) } }
- *   );
- * }
- */
-export function rateLimitByIP(
+export async function rateLimitByIP(
   ip: string,
   limit: number,
   windowMs: number,
   context = "default"
-): RateLimitResult {
+): Promise<RateLimitResult> {
   return checkLimit(`ip:${context}:${ip}`, limit, windowMs);
 }
 
-/**
- * Rate-limits an authenticated request by the user's database ID.
- * Use for actions that require a valid session (form submissions, uploads).
- *
- * @example
- * const rl = rateLimitByUser(userId, LIMITS.FORM.max, LIMITS.FORM.windowMs, "report");
- * if (!rl.success) {
- *   return Response.json({ error: "Too many requests" }, { status: 429 });
- * }
- */
-export function rateLimitByUser(
+export async function rateLimitByUser(
   userId: string,
   limit: number,
   windowMs: number,
   context = "default"
-): RateLimitResult {
+): Promise<RateLimitResult> {
   return checkLimit(`user:${context}:${userId}`, limit, windowMs);
 }
 
 // ─── Preset limits ────────────────────────────────────────────────────────────
-//
-// Import these alongside the functions to avoid magic numbers at call sites.
-//
-//   import { rateLimitByIP, LIMITS } from "@/lib/rate-limit";
-//   const rl = rateLimitByIP(ip, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs, "login");
 
 export const LIMITS = {
-  /** 5 attempts per 15 minutes — login endpoint (IP-based). */
-  LOGIN: { max: 5, windowMs: 15 * 60 * 1000 },
-  /** 10 registrations per hour — signup endpoint (IP-based). */
+  LOGIN:  { max: 5,  windowMs: 15 * 60 * 1000 },
   SIGNUP: { max: 10, windowMs: 60 * 60 * 1000 },
-  /** 5 uploads per minute — file upload endpoint (IP or user). */
-  UPLOAD: { max: 5, windowMs: 60 * 1_000 },
-  /** 20 submissions per hour — incident report form (user-based). */
-  FORM: { max: 20, windowMs: 60 * 60 * 1_000 },
+  UPLOAD: { max: 5,  windowMs: 60 * 1_000 },
+  FORM:   { max: 20, windowMs: 60 * 60 * 1_000 },
 } as const;
 
-// ─── Test helper (non-production only) ───────────────────────────────────────
+// ─── Test helper ──────────────────────────────────────────────────────────────
 
-/** Wipes all counters. Only for use in tests — never call in application code. */
 export function _resetStoreForTesting(): void {
   if (process.env.NODE_ENV === "production") return;
   store.clear();

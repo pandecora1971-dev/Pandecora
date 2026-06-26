@@ -1,6 +1,22 @@
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
 import { Header } from "@/components/layout/header";
-import { ReportForm } from "@/components/forms/report-form";
+
+// Code-split the report form so its large JS chunk is not included in the
+// initial page bundle. Next.js still SSRs the skeleton, then swaps in the
+// real form once the chunk loads on the client.
+const ReportForm = dynamic(
+  () => import("@/components/forms/report-form").then((m) => m.ReportForm),
+  {
+    loading: () => (
+      <div className="space-y-4 animate-pulse">
+        {[1, 2, 3].map((n) => (
+          <div key={n} className="h-48 rounded-2xl bg-gray-200" />
+        ))}
+      </div>
+    ),
+  }
+);
 
 export const metadata: Metadata = {
   title: "অভিযোগ রিপোর্ট জমা দিন — Pandecora",

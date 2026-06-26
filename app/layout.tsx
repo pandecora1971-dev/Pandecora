@@ -1,15 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+// display:"swap" prevents invisible text during font load (eliminates FOIT,
+// improves LCP score on slow connections).
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
+  preload: false, // mono font only used in code/ID blocks — no critical-path penalty
 });
 
 export const metadata: Metadata = {
@@ -35,11 +41,19 @@ export const metadata: Metadata = {
     },
   },
   other: {
-    // Opt out of AI training data collection — honoured by platforms that
-    // respect this signal (OpenAI, Anthropic, Google, etc.).
     "ai-content-opt-out": "1",
-    "robots-noai":        "noai",
+    "robots-noai": "noai",
   },
+};
+
+// Separate viewport export — required by Next.js 15 (metadata.viewport is
+// deprecated). Sets ideal-width so mobile browsers render at device width and
+// don't trigger a double-render that tanks Lighthouse mobile scores.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#25282b",
 };
 
 export default function RootLayout({

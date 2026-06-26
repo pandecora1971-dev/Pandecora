@@ -92,9 +92,6 @@
   * {
     @apply border-border outline-ring/50;
   }
-  html {
-    scroll-behavior: smooth;
-  }
   body {
     @apply bg-background text-foreground;
   }
@@ -102,21 +99,62 @@
 
 /* ─── Scroll animations ─────────────────────────────────────────────────────── */
 
+/* GPU-composited properties only (opacity + transform) — never triggers layout. */
 [data-animate] {
   opacity: 0;
+  /* will-change tells the browser to promote this element to its own layer
+     before the animation starts, eliminating the first-frame jank. */
+  will-change: opacity, transform;
   transition:
     opacity  0.65s cubic-bezier(0.22, 1, 0.36, 1),
     transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-[data-animate="up"]    { transform: translateY(36px); }
-[data-animate="down"]  { transform: translateY(-36px); }
-[data-animate="left"]  { transform: translateX(36px); }
-[data-animate="right"] { transform: translateX(-36px); }
-[data-animate="zoom"]  { transform: scale(0.93); }
+[data-animate="up"]    { transform: translateY(28px); }
+[data-animate="down"]  { transform: translateY(-28px); }
+[data-animate="left"]  { transform: translateX(28px); }
+[data-animate="right"] { transform: translateX(-28px); }
+[data-animate="zoom"]  { transform: scale(0.95); }
 [data-animate="fade"]  { transform: none; }
 
 [data-animate][data-visible="1"] {
   opacity: 1;
   transform: none;
+  /* Release the compositing layer once the animation completes. */
+  will-change: auto;
+}
+
+/* Respect user OS preference — skip all motion for accessibility. */
+@media (prefers-reduced-motion: reduce) {
+  [data-animate] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+    will-change: auto;
+  }
+}
+
+/* ─── Performance baseline ───────────────────────────────────────────────────── */
+
+/* Prevent invisible text during font swap (eliminates FOIT on slow connections). */
+html {
+  font-display: swap;
+  /* Subpixel smoothing on macOS; standard on other platforms. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Optimise text rendering for legibility over speed on body text. */
+  text-rendering: optimizeLegibility;
+}
+
+/* Lazy-load images below the fold by default — override with loading="eager"
+   on hero images that are above the fold. */
+img:not([loading]) {
+  loading: lazy;
+}
+
+/* Smooth scroll only when the user hasn't requested reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }

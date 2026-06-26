@@ -35,7 +35,7 @@ export async function signupAction(
     headersList.get("x-real-ip") ??
     "unknown";
 
-  const rl = rateLimitByIP(ip, LIMITS.SIGNUP.max, LIMITS.SIGNUP.windowMs, "signup");
+  const rl = await rateLimitByIP(ip, LIMITS.SIGNUP.max, LIMITS.SIGNUP.windowMs, "signup");
   if (!rl.success) {
     return { error: "Too many signup attempts. Please try again later." };
   }

@@ -185,7 +185,7 @@ async function persistReport(
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const limit = status === "PENDING" ? SUBMIT_LIMIT : DRAFT_LIMIT;
   const context = status === "PENDING" ? "submit" : "draft";
-  const rl = rateLimitByUser(userId, limit.max, limit.windowMs, context);
+  const rl = await rateLimitByUser(userId, limit.max, limit.windowMs, context);
   if (!rl.success) {
     const cap = status === "PENDING"
       ? "5 final submissions per day"

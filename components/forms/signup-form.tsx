@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signUp, validatePasswordStrength } from "@/lib/auth-client";
-import { signUpStep1Schema } from "@/lib/validators";
+import { signUpStep1Schema, validatePasswordStrength } from "@/lib/validators";
 
 // Step 1 of the signup flow — personal info + credentials.
 // Persists data to sessionStorage so step 2 can complete the combined submission.

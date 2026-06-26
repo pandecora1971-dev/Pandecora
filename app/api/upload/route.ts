@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
   const ip = clientIp(req);
 
   // ── IP-level gate (pre-auth, lightweight) ─────────────────────────────────
-  const ipRl = rateLimitByIP(ip, IP_LIMIT.max, IP_LIMIT.windowMs, "upload");
+  const ipRl = await rateLimitByIP(ip, IP_LIMIT.max, IP_LIMIT.windowMs, "upload");
   if (!ipRl.success) {
     uploadLog("warn", "rate_limited_ip", { ip });
     return NextResponse.json(
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id;
 
   // ── Per-user rate limit (20 / hour per spec) ──────────────────────────────
-  const userRl = rateLimitByUser(userId, USER_LIMIT.max, USER_LIMIT.windowMs, "upload");
+  const userRl = await rateLimitByUser(userId, USER_LIMIT.max, USER_LIMIT.windowMs, "upload");
   if (!userRl.success) {
     uploadLog("warn", "rate_limited_user", { userId, ip });
     return NextResponse.json(
@@ -324,7 +324,7 @@ export async function POST(req: NextRequest) {
             if (!magicPassed) {
               magicBuf = Buffer.concat([magicBuf, chunk]);
               if (magicBuf.length >= MAGIC_PROBE) {
-                if (!checkMagicBytes(magicBuf.slice(0, MAGIC_PROBE), mimeType)) {
+                if (!checkMagicBytes(magicBuf.subarray(0, MAGIC_PROBE), mimeType)) {
                   rejectFile(`"${safeName}" failed content validation. File header does not match declared type "${mimeType}".`);
                   return;
                 }

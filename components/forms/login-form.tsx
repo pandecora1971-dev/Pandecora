@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn, validatePasswordStrength } from "@/lib/auth-client";
+import { signIn } from "@/lib/auth-client";
 import { loginSchema } from "@/lib/validators";
 
 export function LoginForm() {
