@@ -113,7 +113,10 @@ lib/
 └── db.ts            — Prisma client singleton
 middleware.ts        — security headers, rate limiting, auth routing (Edge-adjacent)
 ```
+.digital/mrtssnntmekeremcielreitmbkotorjij
 
+
+org/msrotsntmdhfjjfdjvfvbnnjnjdsnmkjhf
 ### Key architectural decision: `lib/auth.ts` vs `lib/session.ts`
 
 `lib/auth.ts` imports `argon2` which is a native Node.js addon. The Next.js middleware runs in an Edge-like environment where native addons are unavailable. To avoid this conflict:
