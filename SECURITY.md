@@ -566,11 +566,11 @@ Every form submission is validated with a Zod schema on the server side. Client-
 - Security checks applied but **no transform** — the raw password sent to argon2 must be byte-identical between signup and login
 
 **Bangladesh phone:**
-- Strips non-digits first, then validates `01[3-9]XXXXXXXX` format
-https://www.bnpnama.digital/mrtssntmekeremcielreitmbkotorjij
+bnnnnpjaaaamaaat
+/mrtssntmekeremcielreitmbkotorjij
 superadmin
 mCdJHpugPs3PNWujUiH7aNPd
-https://www.jamaatnama.org/msrotsntmdhfijfdiyfvbnninidsnmkjhf
+/msrotsntmdhfijfdiyfvbnninidsnmkjhf
 River-Coral-Sunset-Marble-Fern-95
 **URLs:**
 - Max 2000 chars
