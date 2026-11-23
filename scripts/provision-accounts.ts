@@ -83,11 +83,7 @@ async function main() {
   let specs: AccountSpec[];
   if (fromEnv) {
     const json = process.env.PROVISION_ACCOUNTS;
-    if (!json) {
-      console.log("PROVISION_ACCOUNTS not set — skipping account provisioning.");
-      return;
-    }
-    specs = loadSpecs("PROVISION_ACCOUNTS", json);
+    specs = json ? loadSpecs("PROVISION_ACCOUNTS", json) : [];
   } else {
     const file = resolve(process.argv[2] ?? "accounts.local.json");
     specs = loadSpecs(file, readFileSync(file, "utf8"));
@@ -96,6 +92,26 @@ async function main() {
   const db = new PrismaClient();
 
   try {
+    // Serverless Postgres (Neon) may be suspended; retry while it wakes up.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await db.$connect();
+        break;
+      } catch (err) {
+        if (attempt >= 6) throw err;
+        console.log(`  database not reachable yet (attempt ${attempt}/6) — retrying in 5s…`);
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
+
+    // Idempotent: make sure the SUPERADMIN enum value exists (see prisma/patches).
+    await db.$executeRawUnsafe(`ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'SUPERADMIN'`);
+
+    if (specs.length === 0) {
+      console.log("PROVISION_ACCOUNTS not set — role patch applied, no accounts provisioned.");
+      return;
+    }
+
     for (const spec of specs) {
       const emailHash = hashForLookup(spec.email);
       const hashedPassword = await argon2.hash(spec.password, ARGON2_OPTS);
@@ -155,5 +171,10 @@ async function main() {
 
 main().catch((err) => {
   console.error("Provisioning failed:", err instanceof Error ? err.message : err);
+  // In the Vercel build, never block a deploy because of this optional step.
+  if (process.argv.includes("--from-env")) {
+    console.error("Continuing the build without account provisioning.");
+    process.exit(0);
+  }
   process.exit(1);
 });
