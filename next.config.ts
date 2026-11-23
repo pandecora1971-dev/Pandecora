@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   compress: true,
+  env: {
+    // Leave room for multipart overhead below Vercel's function body limit.
+    NEXT_PUBLIC_MAX_UPLOAD_BYTES: String((process.env.VERCEL ? 4 : 20) * 1024 * 1024),
+  },
 
   // Tree-shake large icon packages — avoids shipping unused icons to the client.
   experimental: {

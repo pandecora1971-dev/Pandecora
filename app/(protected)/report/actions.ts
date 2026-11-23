@@ -7,6 +7,7 @@ import { AUTH_COOKIE_NAME, validateSession } from "@/lib/auth";
 import { rateLimitByUser } from "@/lib/rate-limit";
 import { incidentReportSchema } from "@/lib/validators";
 import { audit } from "@/lib/audit";
+import { verifyUploadMetadata } from "@/lib/upload-metadata";
 import type { IncidentCategory, UrgencyLevel } from "@prisma/client";
 import type { ZodIssue } from "zod";
 
@@ -62,6 +63,7 @@ const KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface FileMetadata {
+  uploadToken:           string;
   key:                   string;
   fileIV:                string;
   fileTag:               string;
@@ -144,8 +146,10 @@ async function fileExistsInDB(key: string): Promise<boolean> {
  *
  * Returns an error string on the first violation, or null if all pass.
  */
-async function validateFileMetadata(files: FileMetadata[]): Promise<string | null> {
+async function validateFileMetadata(files: FileMetadata[], userId: string): Promise<string | null> {
+  if (new Set(files.map((f) => f.key)).size !== files.length) return "Duplicate file references are not allowed.";
   for (const f of files) {
+    if (!verifyUploadMetadata(f, userId)) return "Invalid file reference. Please re-upload your files.";
     if (!KEY_PATTERN.test(f.key)) {
       return "Invalid file reference (malformed key).";
     }
@@ -242,7 +246,7 @@ async function persistReport(
     return { success: false, error: "Too many files attached." };
   }
 
-  const fileError = await validateFileMetadata(allFiles);
+  const fileError = await validateFileMetadata(allFiles, userId);
   if (fileError) {
     log("submission_file_validation_failed", { userId, status, reason: fileError });
     return { success: false, error: fileError };

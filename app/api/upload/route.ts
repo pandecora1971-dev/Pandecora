@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Busboy from "busboy";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { signUploadMetadata } from "@/lib/upload-metadata";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { encrypt, createEncryptCipher } from "@/lib/encryption";
@@ -9,8 +13,8 @@ import { rateLimitByIP, rateLimitByUser } from "@/lib/rate-limit";
 
 const MAGIC_PROBE       = 12;                       // bytes needed for header check
 const UPLOAD_TIMEOUT_MS = 10 * 60_000;              // 10 minutes per file
-const MAX_REGULAR_SIZE  = 20 * 1024 * 1024;         // 20 MB per image/doc
-const MAX_VIDEO_SIZE    = 2 * 1024 * 1024 * 1024;   // 2 GB per video
+const MAX_REGULAR_SIZE  = MAX_UPLOAD_BYTES;
+const MAX_VIDEO_SIZE    = MAX_UPLOAD_BYTES;
 const MAX_REGULAR_COUNT = 5;
 const MAX_VIDEO_COUNT   = 1;
 const USER_QUOTA_BYTES  = 5 * 1024 * 1024 * 1024;   // 5 GB per user
@@ -53,7 +57,7 @@ const MAGIC: Record<string, (b: Buffer) => boolean> = {
     (b) => b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46,
   "text/plain":
     // No reliable universal signature — rely on extension + MIME allowlist
-    (_b) => true,
+    () => true,
   "video/mp4":
     // ISO Base Media (ftyp box at offset 4)
     (b) => b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70,
@@ -130,7 +134,8 @@ function uploadLog(
   fields: Record<string, unknown>
 ): void {
   const line = JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields });
-  level === "error" ? console.error(line) : console.log(line);
+  if (level === "error") console.error(line);
+  else console.log(line);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -144,7 +149,7 @@ function clientIp(req: NextRequest): string {
 }
 
 async function getUserStorageBytes(userId: string): Promise<number> {
-  const [ev, ac] = await Promise.all([
+  const [ev, ac, additional] = await Promise.all([
     db.evidenceFile.aggregate({
       _sum: { fileSize: true },
       where: { submission: { userId } },
@@ -153,13 +158,15 @@ async function getUserStorageBytes(userId: string): Promise<number> {
       _sum: { fileSize: true },
       where: { submission: { userId } },
     }),
+    db.additionalEvidenceFile.aggregate({ _sum: { fileSize: true }, where: { submission: { userId } } }),
   ]);
-  return (ev._sum.fileSize ?? 0) + (ac._sum.fileSize ?? 0);
+  return (ev._sum.fileSize ?? 0) + (ac._sum.fileSize ?? 0) + (additional._sum.fileSize ?? 0);
 }
 
 // ─── Public result type (consumed by report form + actions) ───────────────────
 
 export interface UploadedFileResult {
+  uploadToken: string;
   key:                   string;
   fileIV:                string;
   fileTag:               string;
@@ -220,20 +227,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Expected multipart/form-data." }, { status: 400 });
   }
 
+  if (!req.body) return NextResponse.json({ error: "No upload body received." }, { status: 400 });
+  const contentLength = Number(req.headers.get("content-length"));
+  if (contentLength > MAX_UPLOAD_BYTES + 64 * 1024) {
+    return NextResponse.json({ error: `Upload exceeds the ${MAX_UPLOAD_LABEL} request limit.` }, { status: 413 });
+  }
+  let busboy: ReturnType<typeof Busboy>;
+  try {
+    busboy = Busboy({ headers: { "content-type": contentType }, fileHwm: 1024 * 1024,
+      limits: { fileSize: MAX_VIDEO_SIZE, files: MAX_REGULAR_COUNT + MAX_VIDEO_COUNT, fields: 0, parts: MAX_REGULAR_COUNT + MAX_VIDEO_COUNT } });
+  } catch {
+    return NextResponse.json({ error: "Invalid multipart boundary." }, { status: 400 });
+  }
+
   req.signal.addEventListener("abort", () => {
     uploadLog("warn", "aborted", { userId, ip });
   });
 
   return new Promise<NextResponse>((resolveRequest) => {
-    const busboy = Busboy({
-      headers: { "content-type": contentType },
-      fileHwm: 1 * 1024 * 1024,  // 1 MB per-file stream buffer (important for large video)
-      limits: {
-        fileSize: MAX_VIDEO_SIZE,                    // busboy hard cap; per-type enforced below
-        files:    MAX_REGULAR_COUNT + MAX_VIDEO_COUNT,
-      },
-    });
-
     const uploads: Promise<UploadedFileResult>[] = [];
     let regularCount       = 0;
     let videoCount         = 0;
@@ -267,9 +278,10 @@ export async function POST(req: NextRequest) {
       }
 
       // Slot limits
-      if (isVideo  && videoCount   >= MAX_VIDEO_COUNT)   { stream.resume(); return; }
-      if (!isVideo && regularCount >= MAX_REGULAR_COUNT) { stream.resume(); return; }
-      isVideo ? videoCount++ : regularCount++;
+      if (isVideo && videoCount >= MAX_VIDEO_COUNT) { firstError = "Too many video files."; stream.resume(); return; }
+      if (!isVideo && regularCount >= MAX_REGULAR_COUNT) { firstError = "Too many files."; stream.resume(); return; }
+      if (isVideo) videoCount++;
+      else regularCount++;
 
       // Collect encrypted chunks in memory → store in DB
       const { cipher, iv } = createEncryptCipher();
@@ -311,9 +323,13 @@ export async function POST(req: NextRequest) {
 
             fileBytes          += chunk.length;
             totalBytesInFlight += chunk.length;
+            if (totalBytesInFlight > MAX_UPLOAD_BYTES) {
+              rejectFile(`Upload exceeds the ${MAX_UPLOAD_LABEL} request limit.`);
+              return;
+            }
 
             if (fileBytes > maxSize) {
-              rejectFile(isVideo ? "Video exceeds the 2 GB limit." : `"${safeName}" exceeds the 20 MB limit.`);
+              rejectFile(`File exceeds the ${MAX_UPLOAD_LABEL} limit.`);
               return;
             }
             if (totalBytesInFlight > quotaLeft) {
@@ -338,8 +354,10 @@ export async function POST(req: NextRequest) {
             writeToCipher(chunk);
           });
 
+          stream.on("limit", () => rejectFile("File exceeds the upload size limit."));
           stream.on("end", () => {
             if (fileRejected) return;
+            if (fileBytes === 0) { rejectFile("Empty files cannot be uploaded."); return; }
             if (!magicPassed) {
               if (!checkMagicBytes(magicBuf, mimeType)) {
                 rejectFile(`"${safeName}" failed content validation (file too small or wrong type).`);
@@ -370,7 +388,7 @@ export async function POST(req: NextRequest) {
 
               uploadLog("info", "file_stored_db", { userId, ip, filename: safeName, mimeType, fileBytes, blobId: blob.id });
 
-              res({
+              const metadata = {
                 key:                   blob.id,
                 fileIV:                iv,
                 fileTag:               tag,
@@ -379,7 +397,8 @@ export async function POST(req: NextRequest) {
                 nameTag:               nameEnc.tag,
                 mimeType,
                 fileSize:              fileBytes,
-              });
+              };
+              res({ ...metadata, uploadToken: signUploadMetadata(metadata, userId) });
             } catch (err) {
               rej(err instanceof Error ? err : new Error("DB write failed."));
             }
@@ -392,49 +411,29 @@ export async function POST(req: NextRequest) {
           });
         })
       );
+      // Observe failures immediately, even while the parser is receiving other files.
+      void uploads[uploads.length - 1].catch(() => undefined);
     });
 
     // ── Busboy finish: await all file Promises ─────────────────────────────
-    busboy.on("finish", async () => {
-      if (firstError) {
-        resolveRequest(NextResponse.json({ error: firstError }, { status: 400 }));
-        return;
-      }
-      if (uploads.length === 0) {
-        resolveRequest(NextResponse.json({ error: "No files received." }, { status: 400 }));
-        return;
-      }
-      try {
-        const files = await Promise.all(uploads);
-        resolveRequest(NextResponse.json({ files }));
-      } catch (err) {
-        resolveRequest(
-          NextResponse.json(
-            { error: err instanceof Error ? err.message : "Upload failed." },
-            { status: 400 }
-          )
-        );
-      }
-    });
+    busboy.on("filesLimit", () => { firstError = "Too many files attached."; });
+    busboy.on("partsLimit", () => { firstError = "Too many upload parts."; });
+    busboy.on("fieldsLimit", () => { firstError = "Only file uploads are accepted."; });
 
-    busboy.on("error", (err) => {
-      uploadLog("error", "busboy_error", { userId, ip, error: String(err) });
-      resolveRequest(NextResponse.json({ error: "Upload processing error." }, { status: 500 }));
-    });
-
-    // ── Stream request body into Busboy ───────────────────────────────────
-    req.body
-      ?.pipeTo(
-        new WritableStream({
-          write(chunk) { busboy.write(chunk as Buffer); },
-          close()      { busboy.end(); },
-        })
-      )
-      .catch((err) => {
-        uploadLog("warn", "connection_lost", { userId, ip, error: String(err) });
-        resolveRequest(
-          NextResponse.json({ error: "Connection lost during upload." }, { status: 499 })
-        );
+    // Pipeline propagates backpressure and parser/connection failures.
+    void pipeline(Readable.fromWeb(req.body as import("node:stream/web").ReadableStream), busboy)
+      .catch(() => { firstError = "Upload processing failed. Please try again."; })
+      .then(async () => {
+        const results = await Promise.allSettled(uploads);
+        const files = results.flatMap((r) => r.status === "fulfilled" ? [r.value] : []);
+        const failed = results.some((r) => r.status === "rejected");
+        const error = firstError ?? (failed ? "One or more files could not be uploaded." : files.length ? null : "No files received.");
+        if (error) {
+          if (files.length) await db.fileBlob.deleteMany({ where: { id: { in: files.map((f) => f.key) } } }).catch(() => undefined);
+          resolveRequest(NextResponse.json({ error }, { status: 400 }));
+        } else {
+          resolveRequest(NextResponse.json({ files }));
+        }
       });
   });
 }

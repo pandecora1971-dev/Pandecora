@@ -371,7 +371,6 @@ export async function decryptFile(
  */
 export function generateEncryptionKey(): string {
   const key = crypto.randomBytes(KEY_BYTES).toString("hex");
-  // eslint-disable-next-line no-console
   console.log(key);
   return key;
 }

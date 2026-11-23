@@ -52,7 +52,7 @@ function NavItems({
   adminRole: Role;
   onNavigate?: () => void;
 }) {
-  const isAdmin = adminRole === "ADMIN";
+  const isAdmin = (adminRole === "ADMIN" || adminRole === "SUPERADMIN");
   const items = isAdmin ? [...STAFF_NAV, ...ADMIN_ONLY_NAV] : [...STAFF_NAV];
 
   return (
@@ -104,7 +104,8 @@ function SidebarContent({
     window.location.href = "/admin/login";
   }
 
-  const roleLabel = adminRole === "ADMIN" ? "Administrator" : "Moderator";
+  const roleLabel =
+    adminRole === "SUPERADMIN" ? "Super Admin" : adminRole === "ADMIN" ? "Administrator" : "Moderator";
 
   return (
     <div className="flex h-full flex-col bg-[#25282b]">

@@ -15,6 +15,11 @@ export async function sendVerificationEmail(
     return;
   }
 
+  // Verification tokens must never be written to production logs.
+  if (process.env.NODE_ENV !== "development") {
+    throw new Error("Email delivery is not configured");
+  }
+
   // Dev fallback — print link to console
   console.log(
     `\n[email] No provider configured — verification link:\n` +

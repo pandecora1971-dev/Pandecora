@@ -134,12 +134,17 @@ async function checkLimit(key: string, limit: number, windowMs: number): Promise
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+// Rate limiting is disabled in local development (NODE_ENV=development) so
+// repeated logins/signups while testing never get blocked. Production is unaffected.
+const RATE_LIMIT_DISABLED = process.env.NODE_ENV === "development";
+
 export async function rateLimitByIP(
   ip: string,
   limit: number,
   windowMs: number,
   context = "default"
 ): Promise<RateLimitResult> {
+  if (RATE_LIMIT_DISABLED) return { success: true, remaining: limit, resetIn: 0 };
   return checkLimit(`ip:${context}:${ip}`, limit, windowMs);
 }
 
@@ -149,6 +154,7 @@ export async function rateLimitByUser(
   windowMs: number,
   context = "default"
 ): Promise<RateLimitResult> {
+  if (RATE_LIMIT_DISABLED) return { success: true, remaining: limit, resetIn: 0 };
   return checkLimit(`user:${context}:${userId}`, limit, windowMs);
 }
 

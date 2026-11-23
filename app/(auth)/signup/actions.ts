@@ -1,28 +1,18 @@
 "use server";
 
-import crypto from "crypto";
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
-import { encrypt, hashForLookup } from "@/lib/encryption";
-import { AUTH_COOKIE_NAME, hashPassword } from "@/lib/auth";
+import { AUTH_COOKIE_NAME } from "@/lib/session";
+import { registerAccount } from "@/lib/registration";
 import { rateLimitByIP, LIMITS } from "@/lib/rate-limit";
-import { signUpSchema, isAcademic } from "@/lib/validators";
-import { sendVerificationEmail } from "@/lib/email";
-import { audit } from "@/lib/audit";
-import type { InstitutionType, TeacherOrStudent, UniversityType } from "@prisma/client";
+import { signUpSchema } from "@/lib/validators";
 
-const TOKEN_BYTES        = 32;               // 256-bit raw token
-const TOKEN_EXPIRY_MS    = 24 * 60 * 60_000; // 24 hours
 
 export interface SignupActionState {
   error?: string;
   fieldErrors?: Record<string, string>;
 }
 
-function hashToken(rawToken: string): string {
-  return crypto.createHash("sha256").update(rawToken).digest("hex");
-}
 
 export async function signupAction(
   step1Data: unknown,
@@ -68,89 +58,9 @@ export async function signupAction(
   }
 
   const d = parsed.data;
+  const result = await registerAccount(d, { ipAddress: ip, userAgent: headersList.get("user-agent") ?? undefined });
+  if (!result.ok) return { error: result.message };
 
-  // ── Email uniqueness ───────────────────────────────────────────────────────
-  const emailHash = hashForLookup(d.email);
-  const existing  = await db.user.findUnique({ where: { emailHash }, select: { id: true } });
-  if (existing) {
-    return { error: "This email is already registered. Please log in instead." };
-  }
-
-  // ── Encrypt PII + hash password ────────────────────────────────────────────
-  const encEmail     = encrypt(d.email);
-  const encPhone     = encrypt(d.phone);
-  const hashedPassword = await hashPassword(d.password);
-
-  // ── Create user ────────────────────────────────────────────────────────────
-  let userId: string;
-  try {
-    const user = await db.user.create({
-      data: {
-        name:            d.name,
-        encryptedEmail:  encEmail.ciphertext,
-        emailIV:         encEmail.iv,
-        emailTag:        encEmail.tag,
-        emailHash,
-        encryptedPhone:  encPhone.ciphertext,
-        phoneIV:         encPhone.iv,
-        phoneTag:        encPhone.tag,
-        hashedPassword,
-        role:            "USER",
-        teacherOrStudent: d.teacherOrStudent as TeacherOrStudent,
-        division:         d.division,
-        district:         d.district,
-        upazila:          d.upazila,
-        specificAddress:  d.specificAddress  ?? null,
-        // Academic fields
-        institutionType:  (d.institutionType ?? null) as InstitutionType | null,
-        universityType:   (d.universityType  ?? null) as UniversityType  | null,
-        institutionName:  isAcademic(d.teacherOrStudent) ? (d.institutionName ?? null) : null,
-        department:       d.department ?? null,
-        // Professional fields
-        licenseNumber:    d.licenseNumber    ?? null,
-        organizationName: d.organizationName ?? null,
-        specialization:   d.specialization   ?? null,
-        // emailVerified defaults to false in the schema
-      },
-    });
-    userId = user.id;
-  } catch {
-    return { error: "Registration failed. Please try again later." };
-  }
-
-  await audit({
-    action:    "SIGNUP",
-    userId,
-    userName:  d.name,
-    details:   `New account registered`,
-    ipAddress: ip,
-    userAgent: headersList.get("user-agent") ?? undefined,
-  });
-
-  // ── Generate + store verification token ────────────────────────────────────
-  const rawToken = crypto.randomBytes(TOKEN_BYTES).toString("hex");
-  const tokenHash = hashToken(rawToken);
-
-  try {
-    await db.emailVerificationToken.create({
-      data: {
-        userId,
-        tokenHash,
-        expiresAt: new Date(Date.now() + TOKEN_EXPIRY_MS),
-      },
-    });
-  } catch {
-    // Token creation failed — user can request resend from pending page
-  }
-
-  // ── Send verification email (best-effort) ───────────────────────────────────
-  try {
-    await sendVerificationEmail(d.email, d.name, rawToken);
-  } catch {
-    // Email sending failed — user can request resend from pending page
-  }
-
-  // ── Store a short-lived cookie so the pending page can prefill the email ──
   const cookieStore = await cookies();
   cookieStore.set(`${AUTH_COOKIE_NAME}_pending`, d.email, {
     httpOnly: true,

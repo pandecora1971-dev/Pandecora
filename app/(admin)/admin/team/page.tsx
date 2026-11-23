@@ -3,7 +3,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, validateSession } from "@/lib/session";
-import { getModerators } from "./actions";
+import { isAdmin, canManageAdmins } from "@/lib/roles";
+import { getTeam } from "./actions";
 import TeamClient from "./_team";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +16,10 @@ export default async function TeamPage() {
   if (!token) redirect("/admin/login");
 
   const session = await validateSession(token);
-  if (!session || session.user.role !== "ADMIN") redirect("/admin");
+  if (!session || !isAdmin(session.user.role)) redirect("/admin");
 
-  const result = await getModerators();
+  const result = await getTeam();
   const initialRows = result.success ? result.rows : [];
 
-  return <TeamClient initialRows={initialRows} />;
+  return <TeamClient initialRows={initialRows} isSuperAdmin={canManageAdmins(session.user.role)} />;
 }

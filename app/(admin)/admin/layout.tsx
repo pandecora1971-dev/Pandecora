@@ -12,7 +12,7 @@ export default async function AdminLayout({
 
   if (token) {
     const session = await validateSession(token);
-    if (session && (session.user.role === "ADMIN" || session.user.role === "MODERATOR")) {
+    if (session && ((session.user.role === "ADMIN" || session.user.role === "SUPERADMIN") || session.user.role === "MODERATOR")) {
       return (
         <div className="flex min-h-screen bg-gray-50">
           <AdminSidebar

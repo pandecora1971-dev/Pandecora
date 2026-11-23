@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { UserCog, UserMinus, AlertTriangle, CheckCircle2, UserPlus } from "lucide-react";
-import { getModerators, promoteToModerator, revokeModerator } from "./actions";
-import type { ModeratorRow } from "./actions";
+import { getTeam, promoteMember, revokeMember } from "./actions";
+import type { TeamMemberRow } from "./actions";
 
 interface Props {
-  initialRows: ModeratorRow[];
+  initialRows: TeamMemberRow[];
+  isSuperAdmin: boolean;
 }
 
 function formatDate(iso: string) {
@@ -15,22 +16,23 @@ function formatDate(iso: string) {
   });
 }
 
-export default function TeamClient({ initialRows }: Props) {
-  const [rows, setRows] = useState<ModeratorRow[]>(initialRows);
+export default function TeamClient({ initialRows, isSuperAdmin }: Props) {
+  const [rows, setRows] = useState<TeamMemberRow[]>(initialRows);
 
   // Promote form state
   const [email, setEmail] = useState("");
+  const [targetRole, setTargetRole] = useState<"MODERATOR" | "ADMIN">("MODERATOR");
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoteSuccess, setPromoteSuccess] = useState<string | null>(null);
   const [isPromoting, startPromoteTransition] = useTransition();
 
   // Revoke modal state
-  const [revokeTarget, setRevokeTarget] = useState<ModeratorRow | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<TeamMemberRow | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [isRevoking, startRevokeTransition] = useTransition();
 
   function refresh() {
-    getModerators().then((r) => {
+    getTeam().then((r) => {
       if (r.success) setRows(r.rows);
     });
   }
@@ -40,11 +42,14 @@ export default function TeamClient({ initialRows }: Props) {
     setPromoteError(null);
     setPromoteSuccess(null);
     const fd = new FormData(e.currentTarget);
+    fd.set("role", isSuperAdmin ? targetRole : "MODERATOR");
     startPromoteTransition(async () => {
-      const result = await promoteToModerator(fd);
+      const result = await promoteMember(fd);
       if (result.success) {
         setEmail("");
-        setPromoteSuccess("User promoted to moderator.");
+        setPromoteSuccess(
+          `User promoted to ${isSuperAdmin && targetRole === "ADMIN" ? "admin" : "moderator"}.`
+        );
         refresh();
       } else {
         setPromoteError(result.error);
@@ -56,7 +61,7 @@ export default function TeamClient({ initialRows }: Props) {
     if (!revokeTarget) return;
     setRevokeError(null);
     startRevokeTransition(async () => {
-      const result = await revokeModerator(revokeTarget.id);
+      const result = await revokeMember(revokeTarget.id);
       if (result.success) {
         setRevokeTarget(null);
         refresh();
@@ -73,7 +78,9 @@ export default function TeamClient({ initialRows }: Props) {
       <div className="border-b border-gray-200 bg-white px-6 py-5">
         <p className="text-xs font-bold uppercase tracking-widest text-[#e60000]">Admin</p>
         <h1 className="mt-1 text-2xl font-black text-[#25282b]">Team</h1>
-        <p className="mt-0.5 text-sm text-[#7e7e7e]">Manage moderator accounts</p>
+        <p className="mt-0.5 text-sm text-[#7e7e7e]">
+          {isSuperAdmin ? "Manage admin and moderator accounts" : "Manage moderator accounts"}
+        </p>
       </div>
 
       <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -81,13 +88,41 @@ export default function TeamClient({ initialRows }: Props) {
         {/* ── Promote form ── */}
         <section className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
           <div className="border-b border-gray-100 bg-gray-50/80 px-6 py-4">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#7e7e7e]">Add Moderator</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#7e7e7e]">
+              {isSuperAdmin ? "Add Team Member" : "Add Moderator"}
+            </p>
           </div>
           <div className="px-6 py-5">
             <p className="mb-4 text-sm text-[#7e7e7e]">
-              Enter the email of a registered user to grant them moderator access. They can then sign
-              in here to view submissions, users, and messages — but cannot delete anything.
+              Enter the email of a registered user to grant them staff access. Moderators can view
+              submissions, users, and messages — but cannot delete anything.
+              {isSuperAdmin && " Admins get full access, including deletes, audit log and settings."}
             </p>
+            {isSuperAdmin && (
+              <div className="mb-4 flex gap-3" role="radiogroup" aria-label="Role to grant">
+                {(["MODERATOR", "ADMIN"] as const).map((r) => (
+                  <label
+                    key={r}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                      targetRole === r
+                        ? "border-[#e60000] bg-[#e60000]/5 text-[#e60000]"
+                        : "border-gray-200 text-[#25282b] hover:bg-gray-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="targetRole"
+                      value={r}
+                      checked={targetRole === r}
+                      onChange={() => setTargetRole(r)}
+                      disabled={isPromoting}
+                      className="accent-[#e60000]"
+                    />
+                    {r === "ADMIN" ? "Admin" : "Moderator"}
+                  </label>
+                ))}
+              </div>
+            )}
             <form onSubmit={handlePromote} className="flex gap-3">
               <input
                 type="email"
@@ -128,7 +163,7 @@ export default function TeamClient({ initialRows }: Props) {
         <section className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
           <div className="border-b border-gray-100 bg-gray-50/80 px-6 py-4">
             <p className="text-xs font-bold uppercase tracking-widest text-[#7e7e7e]">
-              Current Moderators
+              {isSuperAdmin ? "Current Team" : "Current Moderators"}
               <span className="ml-2 inline-flex items-center justify-center rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-bold text-gray-600">
                 {rows.length}
               </span>
@@ -138,14 +173,23 @@ export default function TeamClient({ initialRows }: Props) {
           {rows.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-6 py-12 text-[#7e7e7e]">
               <UserCog size={32} className="opacity-25" />
-              <p className="text-sm">No moderators yet.</p>
+              <p className="text-sm">{isSuperAdmin ? "No team members yet." : "No moderators yet."}</p>
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">
               {rows.map((mod) => (
                 <li key={mod.id} className="flex items-center justify-between px-6 py-4">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[#25282b]">{mod.name}</p>
+                    <p className="flex items-center gap-2 truncate text-sm font-semibold text-[#25282b]">
+                      {mod.name}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          mod.role === "ADMIN" ? "bg-[#e60000] text-white" : "bg-gray-200 text-gray-600"
+                        }`}
+                      >
+                        {mod.role === "ADMIN" ? "Admin" : "Moderator"}
+                      </span>
+                    </p>
                     <p className="truncate text-xs text-[#7e7e7e]">{mod.email}</p>
                     <p className="text-[10px] text-gray-400">Since {formatDate(mod.createdAt)}</p>
                   </div>
@@ -177,9 +221,11 @@ export default function TeamClient({ initialRows }: Props) {
                 <AlertTriangle size={20} className="text-[#e60000]" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-[#25282b]">Revoke Moderator</h3>
+                <h3 className="text-base font-bold text-[#25282b]">
+                  Revoke {revokeTarget.role === "ADMIN" ? "Admin" : "Moderator"}
+                </h3>
                 <p className="mt-1.5 text-sm text-[#7e7e7e]">
-                  Remove moderator access from{" "}
+                  Remove {revokeTarget.role === "ADMIN" ? "admin" : "moderator"} access from{" "}
                   <strong className="text-[#25282b]">{revokeTarget.name}</strong>? They will be
                   downgraded to a regular user and lose all staff access immediately.
                 </p>

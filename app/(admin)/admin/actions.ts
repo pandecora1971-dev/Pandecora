@@ -15,13 +15,13 @@ async function getStaffSession() {
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return null;
   const session = await validateSession(token);
-  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "MODERATOR")) return null;
+  if (!session || ((session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN") && session.user.role !== "MODERATOR")) return null;
   return session;
 }
 
 async function getAdminSession() {
   const session = await getStaffSession();
-  if (!session || session.user.role !== "ADMIN") return null;
+  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN")) return null;
   return session;
 }
 
@@ -354,7 +354,9 @@ export async function deleteUser(userId: string): Promise<DeleteUserResult> {
   if (!UUID_PATTERN.test(userId)) return { success: false, error: "Invalid user ID." };
 
   try {
-    await db.user.delete({ where: { id: userId } });
+    // A guessed staff ID must never bypass the separate team-management rules.
+    const deleted = await db.user.deleteMany({ where: { id: userId, role: "USER" } });
+    if (!deleted.count) return { success: false, error: "User not found or account is protected." };
 
     await db.auditLog
       .create({

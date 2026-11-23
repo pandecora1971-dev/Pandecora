@@ -47,24 +47,30 @@ async function main() {
   const encPhone = encrypt("+00000000000"); // placeholder — admin has no personal phone
 
   // ── Upsert admin user ───────────────────────────────────────────────────────
-  const existing = await db.user.findUnique({ where: { emailHash }, select: { id: true, emailVerified: true } });
+  const existing = await db.user.findUnique({
+    where: { emailHash },
+    select: { id: true, emailVerified: true, role: true },
+  });
 
   if (existing) {
-    if (!existing.emailVerified) {
-      await db.user.update({
-        where: { id: existing.id },
-        data:  { emailVerified: true, emailVerifiedAt: new Date() },
-      });
-      console.log(`  Admin user already exists — marked as email-verified.`);
-    } else {
-      console.log(`  Admin user already exists (id: ${existing.id}). Skipping creation.`);
-    }
+    // Ensure the seeded account is verified and holds the SUPERADMIN role.
+    await db.user.update({
+      where: { id: existing.id },
+      data: {
+        role: Role.SUPERADMIN,
+        ...(existing.emailVerified ? {} : { emailVerified: true, emailVerifiedAt: new Date() }),
+      },
+    });
+    console.log(
+      `  Admin user already exists (id: ${existing.id}) — ` +
+        `role ${existing.role} → SUPERADMIN${existing.emailVerified ? "" : ", marked as email-verified"}.`
+    );
     return;
   }
 
   const admin = await db.user.create({
     data: {
-      name: "Platform Admin",
+      name: "Super Admin",
 
       // Encrypted email
       encryptedEmail: encEmail.ciphertext,
@@ -78,7 +84,7 @@ async function main() {
       phoneTag:       encPhone.tag,
 
       hashedPassword,
-      role:             Role.ADMIN,
+      role:             Role.SUPERADMIN,
       teacherOrStudent: TeacherOrStudent.TEACHER,
 
       // Location placeholders — admins are not required to provide real addresses

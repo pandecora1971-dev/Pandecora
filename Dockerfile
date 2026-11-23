@@ -7,6 +7,7 @@ RUN apk add --no-cache libc6-compat openssl python3 make g++
 WORKDIR /app
 
 COPY package*.json ./
+COPY prisma ./prisma
 RUN npm ci
 
 # ─── Stage 2: Build ───────────────────────────────────────────────────────────
@@ -40,16 +41,16 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # node:20-alpine ships with the `node` user (uid 1000 / gid 1000)
-# Copy Next.js standalone output
-COPY --from=build --chown=node:node /app/.next/standalone ./
-COPY --from=build --chown=node:node /app/.next/static     ./.next/static
+# Keep the CLI dependencies and seed sources available for documented DB commands.
+COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/tsconfig.json ./tsconfig.json
+COPY --from=build --chown=node:node /app/lib ./lib
+COPY --from=build --chown=node:node /app/prisma ./prisma
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/.next ./.next
 
 # Copy public assets (favicon, robots.txt, etc.)
 COPY --from=build --chown=node:node /app/public           ./public
-
-# Prisma client — standalone trace doesn't always capture query engine binaries
-COPY --from=build --chown=node:node /app/node_modules/.prisma      ./node_modules/.prisma
-COPY --from=build --chown=node:node /app/node_modules/@prisma      ./node_modules/@prisma
 
 # Persistent upload directory (mounted as a volume in compose)
 RUN mkdir -p /app/uploads && chown node:node /app/uploads
@@ -58,4 +59,4 @@ USER node
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["npm", "run", "start"]

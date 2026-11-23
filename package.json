@@ -7,12 +7,16 @@
     "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --tsconfig tests/tsconfig.json --conditions=react-server --test tests/*.test.ts",
     "db:generate": "prisma generate",
+    "db:prepare:roles": "prisma db execute --file prisma/patches/add-superadmin.sql --schema prisma/schema.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "seed": "tsx lib/seed.ts"
+    "seed": "tsx lib/seed.ts",
+    "accounts:provision": "tsx scripts/provision-accounts.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.8.2",

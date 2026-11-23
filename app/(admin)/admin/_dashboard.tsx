@@ -26,6 +26,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   CORRUPTION_BRIBERY_EXTORTION:  "Corruption / Bribery",
   DISCRIMINATION_BIAS:           "Discrimination / Bias",
   ACADEMIC_MALPRACTICE:          "Academic Malpractice",
+  EXPULSION_DISMISSAL:           "Expulsion / Dismissal",
+  SUSPENSION_RELIEF:             "Suspension / Relief from Duty",
   THEFT_PROPERTY_DAMAGE:         "Theft / Property Damage",
   OTHER_CRIME_POLICY_VIOLATION:  "Other / Policy Violation",
 };
@@ -34,6 +36,7 @@ const STATUS_LABELS: Record<string, string> = {
   PENDING:      "Pending",
   UNDER_REVIEW: "Under Review",
   RESOLVED:     "Resolved",
+  DISMISSED:    "Dismissed",
 };
 
 const URGENCY_CN: Record<string, string> = {
@@ -88,7 +91,6 @@ interface Props {
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function AdminDashboard({
-  adminName: _adminName,
   initialStats,
   initialRows,
   initialTotal,

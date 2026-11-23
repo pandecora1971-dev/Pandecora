@@ -33,6 +33,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   CORRUPTION_BRIBERY_EXTORTION:  "Corruption / Bribery / Extortion",
   DISCRIMINATION_BIAS:           "Discrimination / Bias",
   ACADEMIC_MALPRACTICE:          "Academic Malpractice",
+  EXPULSION_DISMISSAL:           "Expulsion / Dismissal",
+  SUSPENSION_RELIEF:             "Suspension / Relief from Duty",
   THEFT_PROPERTY_DAMAGE:         "Theft / Property Damage",
   OTHER_CRIME_POLICY_VIOLATION:  "Other / Policy Violation",
 };
@@ -133,11 +135,12 @@ const CARD_VARIANTS: Record<
 interface Props {
   submission: SubmissionDetail;
   canDelete: boolean;
+  canDownload: boolean;
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export default function SubmissionDetailClient({ submission, canDelete }: Props) {
+export default function SubmissionDetailClient({ submission, canDelete, canDownload }: Props) {
   const router = useRouter();
 
   const [currentStatus,   setCurrentStatus]      = useState(submission.status);
@@ -237,7 +240,7 @@ export default function SubmissionDetailClient({ submission, canDelete }: Props)
                   {submission.submitter.name}
                 </p>
                 <span className="mt-1 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-blue-700">
-                  {submission.submitter.role === "TEACHER" ? "Teacher" : "Student"}
+                  {submission.submitter.role.charAt(0) + submission.submitter.role.slice(1).toLowerCase()}
                 </span>
               </div>
             </div>
@@ -398,7 +401,7 @@ export default function SubmissionDetailClient({ submission, canDelete }: Props)
                 <div>
                   <SectionLabel>Files</SectionLabel>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {submission.evidenceFiles.map((f) => <FileCard key={f.id} file={f} />)}
+                    {submission.evidenceFiles.map((f) => <FileCard key={f.id} file={f} canDownload={canDownload} />)}
                   </div>
                 </div>
               )}
@@ -432,7 +435,7 @@ export default function SubmissionDetailClient({ submission, canDelete }: Props)
                 <div>
                   <SectionLabel>Evidence Files</SectionLabel>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {submission.accusedFiles.map((f) => <FileCard key={f.id} file={f} />)}
+                    {submission.accusedFiles.map((f) => <FileCard key={f.id} file={f} canDownload={canDownload} />)}
                   </div>
                 </div>
               )}
@@ -468,7 +471,7 @@ export default function SubmissionDetailClient({ submission, canDelete }: Props)
                 <div>
                   <SectionLabel>Evidence Files</SectionLabel>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {submission.additionalFiles.map((f) => <FileCard key={f.id} file={f} />)}
+                    {submission.additionalFiles.map((f) => <FileCard key={f.id} file={f} canDownload={canDownload} />)}
                   </div>
                 </div>
               )}
@@ -588,7 +591,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ─── FileCard ──────────────────────────────────────────────────────────────────
 
-function FileCard({ file }: { file: DecryptedFile }) {
+function FileCard({ file, canDownload }: { file: DecryptedFile; canDownload: boolean }) {
   const isImage = file.fileType.startsWith("image/");
   const isVideo = file.fileType.startsWith("video/");
   const isPDF   = file.fileType === "application/pdf";
@@ -613,7 +616,7 @@ function FileCard({ file }: { file: DecryptedFile }) {
         </p>
         <p className="text-xs text-[#7e7e7e]">{formatSize(file.fileSize)}</p>
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      {canDownload && <div className="flex shrink-0 flex-col items-end gap-1">
         {canPreview && (
           <a href={`/api/admin/download/${file.id}?inline=1`} target="_blank" rel="noopener noreferrer"
             className="text-[11px] font-semibold text-[#e60000] hover:underline">
@@ -624,7 +627,7 @@ function FileCard({ file }: { file: DecryptedFile }) {
           className="text-[11px] font-semibold text-[#e60000] hover:underline">
           Download
         </a>
-      </div>
+      </div>}
     </div>
   );
 }

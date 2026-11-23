@@ -4,7 +4,7 @@ import { redirect, notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, validateSession } from "@/lib/session";
-import { isStaff, canDelete } from "@/lib/roles";
+import { isStaff, isAdmin, canDelete } from "@/lib/roles";
 import { getSubmission } from "./actions";
 import SubmissionDetailClient from "./_detail";
 
@@ -40,6 +40,7 @@ export default async function SubmissionDetailPage({ params }: Props) {
     <SubmissionDetailClient
       submission={result.submission}
       canDelete={canDelete(session.user.role)}
+      canDownload={isAdmin(session.user.role)}
     />
   );
 }

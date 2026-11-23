@@ -1,8 +1,10 @@
 # > Pandecora
 
-> **Domain:** `pandecora.com` — this is the project name and the domain that must be purchased and configured before going live.
+Changes and deployment notes: [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-A full-stack web application for submitting and managing confidential incident reports. All personally identifiable information is encrypted at the application layer before reaching the database. Only authorised administrators can view submissions.
+> **Production:** https://www.survivors.support
+
+A full-stack web application for submitting and managing confidential incident reports. Emails, phone numbers, report text, and evidence are encrypted by the application before storage. Authorised staff review submissions through the protected dashboard.
 
 ---
 
@@ -38,7 +40,7 @@ The platform is bilingual: **Bangla is the primary language** across all user-fa
 - Multi-step registration with profession-specific fields (Teacher, Student, Doctor, Engineer, Lawyer, Journalist, Agriculturist, Others) and full Bangladesh location hierarchy (Division → District → Upazila).
 - Email verification gate before account activation.
 - 3-section incident report form: incident details + evidence, accused information + evidence, and optional additional responsible parties (unlimited entries).
-- Evidence uploads: images, documents (PDF, TXT), and video files up to 2 GB. All files encrypted at rest.
+- Evidence uploads: images, documents (PDF, TXT), and video files within the deployment upload limit. All files encrypted at rest.
 - Save as draft at any point; submit when ready.
 - Admin dashboard: filter and review submissions by category, urgency, status; manage users by profession and location.
 - Role-based access control: USER, MODERATOR, ADMIN.
@@ -493,7 +495,7 @@ A keyed HMAC hash of each email (using `HASH_PEPPER`) is stored for uniqueness c
 Random UUID token, stored in the database, sent as `HttpOnly; SameSite=Strict; Secure` cookie. 30-minute sliding expiry.
 
 ### File encryption
-Evidence files are encrypted immediately after upload. Video files (up to 2 GB) use a streaming cipher to avoid loading them entirely into memory.
+Evidence files are encrypted immediately after upload. Files use authenticated encryption and are stored as bounded encrypted database blobs.
 
 ### Anti-scraping
 - `public/robots.txt` blocks GPTBot, ClaudeBot, CCBot, Google-Extended, Bytespider, and 20+ other AI/data crawlers.
@@ -504,15 +506,11 @@ Evidence files are encrypted immediately after upload. Video files (up to 2 GB) 
 
 ## File Storage
 
-Two backends, selected by `STORAGE_ADAPTER`:
+The active upload and download routes store encrypted file contents in PostgreSQL `FileBlob` records. The legacy local/R2 adapter is not connected to those routes, and R2 is not implemented.
 
-- **`local`** — files stored in `./uploads/` on the server (Docker volume). Fine for a single server.
-- **`r2`** — files stored in Cloudflare R2. Required for multi-instance deployments.
+The upload limit is **4 MiB per file/request on Vercel** and **20 MiB per file/request when self-hosted**. The interface uploads selected files separately. Documents/images are limited to five per section; videos to one per section. Supported formats are JPEG, PNG, GIF, WebP, PDF, TXT, MP4, MOV, AVI, WebM and MPEG. Larger uploads require a separate object-storage implementation.
 
-| Evidence type | Formats | Max size | Max count |
-|---|---|---|---|
-| Documents & Images | JPEG, PNG, GIF, WebP, PDF, TXT | 20 MB each | 5 per section |
-| Video | MP4, MOV, AVI, WebM, MPEG | 2 GB | 1 per section |
+Uploaded metadata is signed for the uploader and verified before a report can attach it.
 
 ---
 

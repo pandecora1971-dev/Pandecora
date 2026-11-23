@@ -4,6 +4,8 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/session";
 import { rateLimitByIP, LIMITS } from "@/lib/rate-limit";
+import { AUTH_COOKIE_NAME, SESSION_DURATION_MS } from "@/lib/session";
+import { isStaff } from "@/lib/roles";
 
 // ─── CSP ──────────────────────────────────────────────────────────────────────
 
@@ -31,7 +33,7 @@ function buildCSP(nonce: string): string {
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",
-    "upgrade-insecure-requests",
+    ...(!isDev ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
 }
 
@@ -99,6 +101,12 @@ export async function middleware(req: NextRequest) {
 
   // Per-request nonce
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+  // Next.js reads CSP from the request to apply the nonce to its own scripts.
+  requestHeaders.set("Content-Security-Policy", buildCSP(nonce));
+  const finish = (res: NextResponse) => { setSecurityHeaders(res, nonce); return res; };
+  let sessionExpiry: Date | undefined;
 
   // ── Request logging (skip static assets) ─────────────────────────────────────
   if (!pathname.startsWith("/_next/") && !pathname.includes(".")) {
@@ -133,27 +141,29 @@ export async function middleware(req: NextRequest) {
     const session = await auth.api.getSession({ headers: req.headers });
 
     if (isReport && !session) {
-      return NextResponse.redirect(new URL("/login", req.url));
+      return finish(NextResponse.redirect(new URL("/login", req.url)));
     }
 
     if (isAdminPath && pathname !== "/admin/login") {
-      const isStaff =
-        session?.user.role === "ADMIN" || session?.user.role === "MODERATOR";
-      if (!isStaff) {
-        return NextResponse.redirect(new URL("/admin/login", req.url));
+      if (!session || !isStaff(session.user.role)) {
+        return finish(NextResponse.redirect(new URL("/admin/login", req.url)));
       }
     }
 
-    if (isAuthPage && session) {
-      return NextResponse.redirect(new URL("/report", req.url));
+    if ((isAuthPage || pathname === "/admin/login") && session) {
+      return finish(NextResponse.redirect(new URL(isStaff(session.user.role) ? "/admin" : "/report", req.url)));
     }
+    sessionExpiry = session?.session.expiresAt;
   }
 
   // ── Forward nonce ─────────────────────────────────────────────────────────────
-  const requestHeaders = new Headers(req.headers);
-  requestHeaders.set("x-nonce", nonce);
-
   const res = NextResponse.next({ request: { headers: requestHeaders } });
+  if (sessionExpiry) {
+    res.cookies.set(AUTH_COOKIE_NAME, req.cookies.get(AUTH_COOKIE_NAME)!.value, {
+      httpOnly: true, secure: !isDev, sameSite: "lax", path: "/",
+      expires: sessionExpiry, maxAge: SESSION_DURATION_MS / 1000,
+    });
+  }
   setSecurityHeaders(res, nonce);
   return res;
 }

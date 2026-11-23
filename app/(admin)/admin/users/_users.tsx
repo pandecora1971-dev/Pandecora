@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Trash2, AlertTriangle, UserX, Eye, SlidersHorizontal, RotateCcw, X } from "lucide-react";
+import { Search, Trash2, AlertTriangle, UserX, Eye, RotateCcw, X } from "lucide-react";
 import { getUsers, deleteUser } from "../actions";
 import type { UserRow, UsersFilter } from "../actions";
 import { BANGLADESH_DIVISIONS, DISTRICTS_BY_DIVISION } from "@/lib/validators";

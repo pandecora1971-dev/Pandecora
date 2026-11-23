@@ -14,6 +14,7 @@ enum Role {
   USER
   MODERATOR
   ADMIN
+  SUPERADMIN
 }
 
 enum TeacherOrStudent {

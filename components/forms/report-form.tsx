@@ -16,6 +16,7 @@ import {
   Check,
   Paperclip,
 } from "lucide-react";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
 import { submitReport, saveDraft } from "@/app/(protected)/report/actions";
 import type { FileMetadata } from "@/app/(protected)/report/actions";
 
@@ -27,6 +28,7 @@ interface UploadedFile extends FileMetadata {
 }
 
 interface UploadedFileResult {
+  uploadToken: string;
   key: string;
   fileIV: string;
   fileTag: string;
@@ -141,23 +143,20 @@ function FileDropZone({
     onUploadingChange(true);
 
     try {
-      const fd = new FormData();
-      selected.forEach((f) => fd.append("file", f));
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "আপলোড ব্যর্থ হয়েছে।");
+      // Send one file per request so a selection cannot exceed the host body limit.
+      for (const selectedFile of selected) {
+        const fd = new FormData(); fd.append("file", selectedFile);
+        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(data.error ?? "File upload failed. Please try again.");
+        }
+        const data = await res.json() as { files: UploadedFileResult[] };
+        const result = data.files[0];
+        if (!result) throw new Error("Upload returned no file.");
+        onFilesAdd([{ ...result, displayName: selectedFile.name,
+          previewUrl: selectedFile.type.startsWith("image/") ? URL.createObjectURL(selectedFile) : undefined }]);
       }
-      const data = (await res.json()) as { files: UploadedFileResult[] };
-      const uploaded: UploadedFile[] = data.files.map((r, i) => ({
-        ...r,
-        displayName: selected[i]?.name ?? "unnamed",
-        previewUrl:
-          selected[i]?.type.startsWith("image/")
-            ? URL.createObjectURL(selected[i])
-            : undefined,
-      }));
-      onFilesAdd(uploaded);
     } catch (err) {
       setLocalErr(err instanceof Error ? err.message : "আপলোড ব্যর্থ হয়েছে।");
     } finally {
@@ -258,8 +257,8 @@ function VideoDropZone({
     if (!selectedFile.type.startsWith("video/")) {
       setLocalErr("শুধুমাত্র ভিডিও ফাইল গ্রহণযোগ্য।"); return;
     }
-    if (selectedFile.size > 2 * 1024 * 1024 * 1024) {
-      setLocalErr("ভিডিও ২ জিবি সীমা অতিক্রম করেছে।"); return;
+    if (selectedFile.size > MAX_UPLOAD_BYTES) {
+      setLocalErr(`Maximum file size is ${MAX_UPLOAD_LABEL}.`); return;
     }
     setLocalErr(null); setUploading(true); onUploadingChange(true); onProgressChange(0);
     const fd = new FormData();
@@ -323,7 +322,7 @@ function VideoDropZone({
           />
           <Video size={22} className={cn("shrink-0", dragOn ? "text-[#e60000]" : "text-gray-400")} />
           <p className="text-sm font-semibold text-[#25282b]">ভিডিও টেনে আনুন বা ক্লিক করুন</p>
-          <p className="text-xs text-[#7e7e7e]">MP4, MOV, AVI, WebM · সর্বোচ্চ ২ জিবি · ১টি ভিডিও</p>
+          <p className="text-xs text-[#7e7e7e]">MP4, MOV, AVI, WebM · {MAX_UPLOAD_LABEL} maximum · one video</p>
         </div>
       )}
 
@@ -558,7 +557,7 @@ function AdditionalPartyCard({
             onFilesAdd={(added) => onUpdate({ files: [...party.files, ...added] })}
             onFileRemove={(idx) => onUpdate({ files: party.files.filter((_, i) => i !== idx) })}
             onUploadingChange={(v) => onUpdate({ fileUploading: v })}
-            accept={REGULAR_ACCEPT} maxFiles={5} maxSizeBytes={20 * 1024 * 1024}
+            accept={REGULAR_ACCEPT} maxFiles={5} maxSizeBytes={MAX_UPLOAD_BYTES}
             label="ফাইল টেনে আনুন বা ক্লিক করুন (Drop files or click to browse)"
             sublabel="ছবি, PDF, TXT · সর্বোচ্চ ৫টি · প্রতিটি ২০ মেগাবাইট"
           />
@@ -851,7 +850,7 @@ export function ReportForm() {
                 <FileDropZone
                   files={evidenceFiles} onFilesAdd={addEvidenceFiles}
                   onFileRemove={removeEvidenceFile} onUploadingChange={setEvidenceUploading}
-                  accept={REGULAR_ACCEPT} maxFiles={5} maxSizeBytes={20 * 1024 * 1024}
+                  accept={REGULAR_ACCEPT} maxFiles={5} maxSizeBytes={MAX_UPLOAD_BYTES}
                   label="ফাইল টেনে আনুন বা ক্লিক করুন (Drop files or click to browse)"
                   sublabel="ছবি, PDF, TXT · সর্বোচ্চ ৫টি · প্রতিটি ২০ মেগাবাইট"
                 />
@@ -911,7 +910,7 @@ export function ReportForm() {
             <FileDropZone
               files={accusedFiles} onFilesAdd={addAccusedFiles}
               onFileRemove={removeAccusedFile} onUploadingChange={setAccusedUploading}
-              accept={REGULAR_ACCEPT} maxFiles={5} maxSizeBytes={20 * 1024 * 1024}
+              accept={REGULAR_ACCEPT} maxFiles={5} maxSizeBytes={MAX_UPLOAD_BYTES}
               label="ফাইল টেনে আনুন বা ক্লিক করুন (Drop files or click to browse)"
               sublabel="ছবি, PDF, TXT · সর্বোচ্চ ৫টি · প্রতিটি ২০ মেগাবাইট"
             />
@@ -1008,6 +1007,7 @@ export function ReportForm() {
 
 function toMeta(f: UploadedFile): FileMetadata {
   return {
+    uploadToken:           f.uploadToken,
     key:                   f.key,
     fileIV:                f.fileIV,
     fileTag:               f.fileTag,

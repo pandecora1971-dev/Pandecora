@@ -13,7 +13,7 @@ export default async function SettingsPage() {
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!token) redirect("/admin/login");
   const session = await validateSession(token);
-  if (!session || session.user.role !== "ADMIN") redirect("/admin/login");
+  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN")) redirect("/admin/login");
 
   const storageAdapter = process.env.STORAGE_ADAPTER ?? "Local filesystem";
 

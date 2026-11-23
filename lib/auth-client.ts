@@ -144,9 +144,16 @@ export interface SignUpPayload {
   department?: string;
 }
 
+export interface RegistrationResponse {
+  user: { id: string; emailVerified: false };
+  verificationRequired: true;
+  verificationEmailSent: boolean;
+  nextUrl: string;
+}
+
 export async function signUp(
   payload: SignUpPayload
-): Promise<AuthResult<ClientSession>> {
+): Promise<AuthResult<RegistrationResponse>> {
   const res = await fetch("/api/auth/signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -154,7 +161,7 @@ export async function signUp(
     body: JSON.stringify(payload),
   });
 
-  const body = (await res.json()) as ClientSession | AuthError;
+  const body = (await res.json()) as RegistrationResponse | AuthError;
 
   if (!res.ok) {
     const err = body as AuthError;
@@ -165,7 +172,7 @@ export async function signUp(
     };
   }
 
-  return { ok: true, data: body as ClientSession };
+  return { ok: true, data: body as RegistrationResponse };
 }
 
 // ─── Convenience re-export of password rules ──────────────────────────────────

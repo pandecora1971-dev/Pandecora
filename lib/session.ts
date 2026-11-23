@@ -15,7 +15,7 @@ import type {
 
 export const AUTH_COOKIE_NAME = "sip_session";
 
-const SESSION_DURATION_MS = 30 * 60 * 1000;
+export const SESSION_DURATION_MS = 30 * 60 * 1000;
 
 export interface SafeUser {
   id: string;
@@ -41,7 +41,7 @@ export interface SessionData {
   user: SafeUser;
 }
 
-const USER_SELECT = {
+export const USER_SELECT = {
   id: true,
   name: true,
   encryptedEmail: true,
@@ -62,7 +62,7 @@ const USER_SELECT = {
   updatedAt: true,
 } as const;
 
-function toSafeUser(row: {
+export function toSafeUser(row: {
   id: string;
   name: string;
   encryptedEmail: string;
@@ -106,10 +106,17 @@ export function extractSessionToken(cookieHeader: string | null): string | null 
   if (!cookieHeader) return null;
   const pattern = new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`);
   const match = cookieHeader.match(pattern);
-  return match ? decodeURIComponent(match[1]!) : null;
+  if (!match) return null;
+  try {
+    const token = decodeURIComponent(match[1]!);
+    return /^[0-9a-f]{64}$/i.test(token) ? token : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function validateSession(token: string): Promise<SessionData | null> {
+  if (!/^[0-9a-f]{64}$/i.test(token)) return null;
   const row = await db.session.findUnique({
     where: { token },
     include: { user: { select: USER_SELECT } },
@@ -117,7 +124,7 @@ export async function validateSession(token: string): Promise<SessionData | null
 
   if (!row) return null;
 
-  if (row.expiresAt < new Date()) {
+  if (row.expiresAt <= new Date() || !row.user.emailVerified) {
     await db.session.delete({ where: { id: row.id } }).catch(() => undefined);
     return null;
   }
@@ -127,10 +134,13 @@ export async function validateSession(token: string): Promise<SessionData | null
     .update({ where: { id: row.id }, data: { expiresAt: newExpiry } })
     .catch(() => undefined);
 
-  return {
-    session: { ...row, expiresAt: newExpiry },
-    user: toSafeUser(row.user),
-  };
+  try {
+    const { user, ...session } = row;
+    return { session: { ...session, expiresAt: newExpiry }, user: toSafeUser(user) };
+  } catch {
+    console.error("[session] Unable to decrypt account data; check encryption configuration.");
+    return null;
+  }
 }
 
 export async function getSession(headers: Headers): Promise<SessionData | null> {

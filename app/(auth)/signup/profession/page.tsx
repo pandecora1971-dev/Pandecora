@@ -50,7 +50,7 @@ const PROFESSION_LABELS: Record<string, { bn: string; en: string }> = {
 
 export default function ProfessionPage() {
   const router = useRouter();
-  const { step1, setProfessionData } = useSignup();
+  const { step1 } = useSignup();
 
   if (!step1) {
     if (typeof window !== "undefined") router.replace("/signup");

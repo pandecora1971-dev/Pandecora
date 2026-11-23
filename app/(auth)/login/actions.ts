@@ -63,13 +63,13 @@ export async function loginAction(formData: FormData): Promise<LoginActionState>
   const cookieStore = await cookies();
   cookieStore.set(AUTH_COOKIE_NAME, result.session.token, {
     httpOnly: true,
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/",
     maxAge: 30 * 60, // 30-minute rolling window
     secure: process.env.NODE_ENV === "production",
   });
 
   // ── Redirect based on role ─────────────────────────────────────────────────
-  const isStaff = result.user.role === "ADMIN" || result.user.role === "MODERATOR";
+  const isStaff = (result.user.role === "ADMIN" || result.user.role === "SUPERADMIN") || result.user.role === "MODERATOR";
   redirect(isStaff ? "/admin" : "/report");
 }

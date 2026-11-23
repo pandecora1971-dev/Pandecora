@@ -9,13 +9,13 @@ async function getStaffSession() {
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return null;
   const session = await validateSession(token);
-  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "MODERATOR")) return null;
+  if (!session || ((session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN") && session.user.role !== "MODERATOR")) return null;
   return session;
 }
 
 async function getAdminSession() {
   const session = await getStaffSession();
-  if (!session || session.user.role !== "ADMIN") return null;
+  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN")) return null;
   return session;
 }
 

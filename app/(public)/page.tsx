@@ -44,7 +44,7 @@ const STATS = [
 const FEATURES = [
   { Icon: Lock,        title: "End-to-End Encrypted",      body: "Reports are encrypted before they ever reach the database. Breaching the storage layer reveals nothing readable." },
   { Icon: EyeOff,      title: "Identity Protected",        body: "Only verified administrators with the correct keys can decrypt your identity. Everyone else sees only ciphertext." },
-  { Icon: FileCheck,   title: "Encrypted Evidence",        body: "Upload documents, images, and up to 2 GB of video. Every byte is encrypted on arrival — zero plaintext on disk." },
+  { Icon: FileCheck,   title: "Encrypted Evidence",        body: "Upload documents, images, and video evidence within the displayed file limit. Every byte is encrypted on arrival — zero plaintext on disk." },
   { Icon: Fingerprint, title: "Tamper-Proof Audit Trail",  body: "Every admin action — view, download, status change, delete — is permanently logged with timestamp and IP." },
   { Icon: Clock,       title: "Draft & Resume Later",      body: "Start a report and save it as a draft. Return any time to complete and submit when you are ready." },
   { Icon: Users,       title: "Multi-Role Access Control", body: "Strict role separation ensures reporters and administrators can only perform actions appropriate to their role." },

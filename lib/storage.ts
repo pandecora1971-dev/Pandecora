@@ -11,7 +11,7 @@ export interface StorageAdapter {
 class LocalAdapter implements StorageAdapter {
   private readonly uploadDir = path.join(process.cwd(), "uploads");
 
-  async save(buffer: Buffer, filename: string, _mimeType: string): Promise<string> {
+  async save(buffer: Buffer, filename: string): Promise<string> {
     await fs.mkdir(this.uploadDir, { recursive: true });
     const ext = path.extname(filename).toLowerCase();
     const key = `${uuidv4()}${ext}`;
@@ -29,12 +29,12 @@ class LocalAdapter implements StorageAdapter {
 }
 
 class R2Adapter implements StorageAdapter {
-  async save(_buffer: Buffer, _filename: string, _mimeType: string): Promise<string> {
+  async save(): Promise<string> {
     // TODO: implement with @aws-sdk/client-s3 pointing at the R2 endpoint
     throw new Error("R2 adapter is not yet implemented");
   }
 
-  async delete(_key: string): Promise<void> {
+  async delete(): Promise<void> {
     throw new Error("R2 adapter is not yet implemented");
   }
 

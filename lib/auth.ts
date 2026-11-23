@@ -21,24 +21,23 @@ import "server-only";
 import crypto from "crypto";
 import argon2 from "argon2";
 import { db } from "@/lib/db";
-import { decrypt, encrypt, hashForLookup } from "@/lib/encryption";
+import { hashForLookup } from "@/lib/encryption";
+import { AUTH_COOKIE_NAME, SESSION_DURATION_MS, USER_SELECT, toSafeUser } from "@/lib/session";
+import type { SafeUser } from "@/lib/session";
+export { AUTH_COOKIE_NAME, extractSessionToken, validateSession, getSession, auth } from "@/lib/session";
+export type { SafeUser, SessionData } from "@/lib/session";
 import { validatePasswordStrength } from "@/lib/validators";
 import type {
-  InstitutionType,
   Role,
   Session,
-  TeacherOrStudent,
-  UniversityType,
 } from "@prisma/client";
 
 export { validatePasswordStrength };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-export const AUTH_COOKIE_NAME = "sip_session"; // sip = session cookie for pandecora
 
 const SESSION_TOKEN_BYTES = 32;               // 256-bit session token
-const SESSION_DURATION_MS = 30 * 60 * 1000;  // 30-minute inactivity window (rolling)
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;  // 15-minute lockout after 5 failures
 
@@ -100,7 +99,13 @@ export interface LockStatus {
   attemptsRemaining: number;
 }
 
+// Account lockout is disabled in local development (NODE_ENV=development).
+const LOCKOUT_DISABLED = process.env.NODE_ENV === "development";
+
 export function checkLockStatus(emailHash: string): LockStatus {
+  if (LOCKOUT_DISABLED) {
+    return { locked: false, retryAfterMs: 0, attemptsRemaining: MAX_LOGIN_ATTEMPTS };
+  }
   const rec = _getRecord(emailHash);
   if (rec.lockedUntil !== null) {
     return {
@@ -117,6 +122,7 @@ export function checkLockStatus(emailHash: string): LockStatus {
 }
 
 export function recordFailedAttempt(emailHash: string): LockStatus {
+  if (LOCKOUT_DISABLED) return checkLockStatus(emailHash);
   const rec = _getRecord(emailHash);
   rec.count += 1;
 
@@ -185,104 +191,6 @@ export function makeExpiredCookie(): string {
   });
 }
 
-/** Parses the session token from a raw Cookie header string. */
-export function extractSessionToken(cookieHeader: string | null): string | null {
-  if (!cookieHeader) return null;
-  const pattern = new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`);
-  const match = cookieHeader.match(pattern);
-  return match ? decodeURIComponent(match[1]!) : null;
-}
-
-// ─── Safe user type (no PII ciphertext, no password hash) ────────────────────
-
-export interface SafeUser {
-  id: string;
-  name: string;
-  email: string;           // decrypted on the server, safe to send to client
-  emailVerified: boolean;
-  role: Role;
-  teacherOrStudent: TeacherOrStudent;
-  division: string;
-  district: string;
-  upazila: string;
-  specificAddress: string | null;
-  institutionType: InstitutionType | null;
-  universityType: UniversityType | null;
-  institutionName: string | null;
-  department: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface SessionData {
-  session: Session;
-  user: SafeUser;
-}
-
-function toSafeUser(row: {
-  id: string;
-  name: string;
-  encryptedEmail: string;
-  emailIV: string;
-  emailTag: string;
-  emailVerified: boolean;
-  role: Role;
-  teacherOrStudent: TeacherOrStudent;
-  division: string;
-  district: string;
-  upazila: string;
-  specificAddress: string | null;
-  institutionType: InstitutionType | null;
-  universityType: UniversityType | null;
-  institutionName: string | null;
-  department: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): SafeUser {
-  return {
-    id: row.id,
-    name: row.name,
-    email: decrypt(row.encryptedEmail, row.emailIV, row.emailTag),
-    emailVerified: row.emailVerified,
-    role: row.role,
-    teacherOrStudent: row.teacherOrStudent,
-    division: row.division,
-    district: row.district,
-    upazila: row.upazila,
-    specificAddress: row.specificAddress,
-    institutionType: row.institutionType,
-    universityType: row.universityType,
-    institutionName: row.institutionName,
-    department: row.department,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-// Prisma select — intentionally excludes hashedPassword and all cipher fields
-const USER_SELECT = {
-  id: true,
-  name: true,
-  encryptedEmail: true,
-  emailIV: true,
-  emailTag: true,
-  emailVerified: true,
-  role: true,
-  teacherOrStudent: true,
-  division: true,
-  district: true,
-  upazila: true,
-  specificAddress: true,
-  institutionType: true,
-  universityType: true,
-  institutionName: true,
-  department: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
-
-// ─── Session CRUD ─────────────────────────────────────────────────────────────
-
 export async function createSession(
   userId: string,
   meta: { ipAddress?: string; userAgent?: string } = {}
@@ -302,37 +210,6 @@ export async function createSession(
 }
 
 /**
- * Validates a session token and returns the attached user.
- * Extends the expiry on every call (rolling session).
- * Cleans up expired sessions on lookup.
- */
-export async function validateSession(token: string): Promise<SessionData | null> {
-  const row = await db.session.findUnique({
-    where: { token },
-    include: { user: { select: USER_SELECT } },
-  });
-
-  if (!row) return null;
-
-  if (row.expiresAt < new Date()) {
-    // Expired — purge and reject
-    await db.session.delete({ where: { id: row.id } }).catch(() => undefined);
-    return null;
-  }
-
-  // Roll the window — extend expiry on every active request
-  const newExpiry = new Date(Date.now() + SESSION_DURATION_MS);
-  await db.session
-    .update({ where: { id: row.id }, data: { expiresAt: newExpiry } })
-    .catch(() => undefined);
-
-  return {
-    session: { ...row, expiresAt: newExpiry },
-    user: toSafeUser(row.user),
-  };
-}
-
-/**
  * Destroys a session server-side by token.
  * Called on logout — ensures the session cannot be reused even if the cookie
  * is somehow retained by the client or an attacker.
@@ -341,15 +218,7 @@ export async function destroySession(token: string): Promise<void> {
   await db.session.deleteMany({ where: { token } });
 }
 
-/**
- * Reads the session from a Headers object.
- * Use in Server Components, Route Handlers, and middleware.
- */
-export async function getSession(headers: Headers): Promise<SessionData | null> {
-  const token = extractSessionToken(headers.get("cookie"));
-  if (!token) return null;
-  return validateSession(token);
-}
+
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
@@ -362,7 +231,7 @@ export type LoginSuccess = {
 
 export type LoginFailure = {
   ok: false;
-  reason: "invalid_credentials" | "locked" | "unverified_email";
+  reason: "invalid_credentials" | "locked" | "unverified_email" | "forbidden" | "unavailable";
   message: string;
   retryAfterMs?: number;
 };
@@ -374,9 +243,19 @@ export interface LoginParams {
   password: string;
   ipAddress?: string;
   userAgent?: string;
+  allowedRoles?: readonly Role[];
 }
 
 export async function loginWithEmail(params: LoginParams): Promise<LoginResult> {
+  try {
+    return await authenticateWithEmail(params);
+  } catch {
+    console.error("[auth] Sign-in failed; check database and encryption configuration.");
+    return { ok: false, reason: "unavailable", message: "Sign-in is temporarily unavailable. Please try again later." };
+  }
+}
+
+async function authenticateWithEmail(params: LoginParams): Promise<LoginResult> {
   const { email, password, ipAddress, userAgent } = params;
   const emailHash = hashForLookup(email);
 
@@ -402,6 +281,7 @@ export async function loginWithEmail(params: LoginParams): Promise<LoginResult> 
   // Run a real argon2 verify against the dummy hash so the response time is
   // indistinguishable from a wrong-password attempt on a real account.
   if (!user) {
+    recordFailedAttempt(emailHash);
     const dummyHash = await _dummyHashReady;
     await argon2.verify(dummyHash, password).catch(() => undefined);
     return {
@@ -432,28 +312,21 @@ export async function loginWithEmail(params: LoginParams): Promise<LoginResult> 
   }
 
   // ── 6. Success — clear failures, create session ─────────────────────────────
+  if (params.allowedRoles && !params.allowedRoles.includes(user.role)) {
+    return { ok: false, reason: "forbidden", message: "Access denied. Staff accounts only." };
+  }
+  const safeUser = toSafeUser(user);
   clearLoginAttempts(emailHash);
   const session = await createSession(user.id, { ipAddress, userAgent });
   const cookieHeader = makeSessionCookie(session.token, session.expiresAt);
 
   // Remove hashedPassword before returning (toSafeUser also strips cipher fields)
-  const { hashedPassword: _pw, ...safeRow } = user;
   return {
     ok: true,
-    user: toSafeUser(safeRow),
+    user: safeUser,
     session,
     cookieHeader,
   };
 }
 
 // ─── auth object — compatible with middleware.ts usage ────────────────────────
-
-export const auth = {
-  api: {
-    /**
-     * Compatible with middleware.ts:
-     *   const session = await auth.api.getSession({ headers: req.headers });
-     */
-    getSession: ({ headers }: { headers: Headers }) => getSession(headers),
-  },
-} as const;

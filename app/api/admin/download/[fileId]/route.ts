@@ -44,7 +44,7 @@ export async function GET(
   if (!token) return new Response("Unauthorized", { status: 401 });
 
   const session = await validateSession(token);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN")) {
     return new Response("Unauthorized", { status: 401 });
   }
 

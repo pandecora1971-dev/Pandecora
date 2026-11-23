@@ -44,20 +44,15 @@ export const DISTRICTS_BY_DIVISION: Record<Division, readonly string[]> = {
 
 // ─── Security base ─────────────────────────────────────────────────────────────
 //
-// _secureChecks: rejection guards only (no transform). Used for password fields
+// _secureChecks: reject null bytes only (no transform). Used for password fields
 // so that the raw bytes sent to argon2 exactly match on signup AND login.
 //
-// _secure: same guards + strip < > + trim. Used for all other text fields.
+// SQL keywords are valid text; Prisma parameterizes database queries.
+// _secure trims text and removes angle brackets; React escapes rendered content.
 
 const _secureChecks = z
   .string()
-  .refine((s) => !s.includes("\0"), "Contains invalid characters")
-  .refine((s) => !/<script[\s\S]*?>/i.test(s), "Contains disallowed content")
-  .refine(
-    (s) => !/\b(DROP|DELETE|INSERT|UPDATE|ALTER|EXEC)\b/i.test(s),
-    "Contains disallowed content"
-  )
-  .refine((s) => !s.includes("../"), "Contains disallowed characters");
+  .refine((s) => !s.includes("\0"), "Contains invalid characters");
 
 const _secure = _secureChecks.transform((s) => s.replace(/[<>]/g, "").trim());
 
@@ -88,12 +83,6 @@ function sso(max: number) {
 const emailField = z
   .string()
   .refine((s) => !s.includes("\0"), "Contains invalid characters")
-  .refine((s) => !/<script[\s\S]*?>/i.test(s), "Contains disallowed content")
-  .refine(
-    (s) => !/\b(DROP|DELETE|INSERT|UPDATE|ALTER|EXEC)\b/i.test(s),
-    "Contains disallowed content"
-  )
-  .refine((s) => !s.includes("../"), "Contains disallowed characters")
   .transform((s) => s.trim().toLowerCase())
   .pipe(z.string().email("Invalid email address"));
 
@@ -118,12 +107,12 @@ const safeUrl = z
   .string()
   .max(2000, "URL must be 2000 characters or fewer")
   .refine((s) => !s.includes("\0"), "Invalid URL")
-  .transform((s) => (/^https?:\/\//i.test(s) ? s : `https://${s}`))
+  .transform((s) => (/^[a-z][a-z\d+.-]*:/i.test(s) ? s : `https://${s}`))
   .pipe(
     z.string().refine((s) => {
       try {
-        new URL(s);
-        return true;
+        const url = new URL(s);
+        return url.protocol === "https:" || url.protocol === "http:";
       } catch {
         return false;
       }

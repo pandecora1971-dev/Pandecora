@@ -1,22 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
 // display:"swap" prevents invisible text during font load (eliminates FOIT,
 // improves LCP score on slow connections).
-const geistSans = Geist({
+const geistSans = localFont({
+  src: "./fonts/geist-latin.woff2",
+  weight: "100 900",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
   display: "swap",
   preload: true,
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/geist-mono-latin.woff2",
+  weight: "100 900",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
   display: "swap",
   preload: false, // mono font only used in code/ID blocks — no critical-path penalty
 });
+
+// CSP uses a fresh nonce for each request, including Next.js inline scripts.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: {

@@ -14,7 +14,7 @@ export default async function AuditPage() {
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!token) redirect("/admin/login");
   const session = await validateSession(token);
-  if (!session || session.user.role !== "ADMIN") redirect("/admin/login");
+  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "SUPERADMIN")) redirect("/admin/login");
 
   const result = await getAuditLogs(1, {});
   const initialRows = result.success ? result.rows : [];
