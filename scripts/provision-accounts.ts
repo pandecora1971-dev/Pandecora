@@ -44,9 +44,14 @@ interface AccountSpec {
 
 const ROLES = new Set<string>(Object.values(Role));
 
-function loadSpecs(file: string): AccountSpec[] {
-  const raw: unknown = JSON.parse(readFileSync(file, "utf8"));
-  if (!Array.isArray(raw)) throw new Error(`${file} must contain a JSON array`);
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+function loadSpecs(source: string, json: string): AccountSpec[] {
+  const raw: unknown = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error(`${source} must contain a JSON array`);
   return raw.map((entry, i) => {
     const e = entry as Partial<AccountSpec>;
     const email = String(e.email ?? "").trim().toLowerCase();
@@ -72,8 +77,22 @@ function defaultName(role: Role): string {
 }
 
 async function main() {
-  const file = resolve(process.argv[2] ?? "accounts.local.json");
-  const specs = loadSpecs(file);
+  // --from-env: read the JSON from the PROVISION_ACCOUNTS env var (used in the
+  // Vercel build, where production secrets are available). Silently no-op if unset.
+  const fromEnv = process.argv.includes("--from-env");
+  let specs: AccountSpec[];
+  if (fromEnv) {
+    const json = process.env.PROVISION_ACCOUNTS;
+    if (!json) {
+      console.log("PROVISION_ACCOUNTS not set — skipping account provisioning.");
+      return;
+    }
+    specs = loadSpecs("PROVISION_ACCOUNTS", json);
+  } else {
+    const file = resolve(process.argv[2] ?? "accounts.local.json");
+    specs = loadSpecs(file, readFileSync(file, "utf8"));
+  }
+  const show = (email: string) => (fromEnv ? maskEmail(email) : email);
   const db = new PrismaClient();
 
   try {
@@ -94,7 +113,7 @@ async function main() {
         });
         // Force re-login with the new credentials/role.
         await db.session.deleteMany({ where: { userId: existing.id } });
-        console.log(`  updated  ${spec.role.padEnd(10)} ${spec.email} (was ${existing.role})`);
+        console.log(`  updated  ${spec.role.padEnd(10)} ${show(spec.email)} (was ${existing.role})`);
         continue;
       }
 
@@ -126,7 +145,7 @@ async function main() {
           emailVerifiedAt: now,
         },
       });
-      console.log(`  created  ${spec.role.padEnd(10)} ${spec.email}`);
+      console.log(`  created  ${spec.role.padEnd(10)} ${show(spec.email)}`);
     }
     console.log("\nDone.");
   } finally {

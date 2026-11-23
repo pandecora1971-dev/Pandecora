@@ -41,3 +41,7 @@ coverage
 
 # Local account provisioning credentials (never commit)
 /accounts.local.json
+
+.vercel
+.env*
+!.env.example
