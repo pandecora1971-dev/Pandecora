@@ -362,6 +362,16 @@ export const adminLoginSchema = z.object({
     .optional(),
 });
 
+// ─── Staff account creation (Team page) ───────────────────────────────────────
+
+export const createStaffAccountSchema = z.object({
+  name:     ss(2, 100),
+  email:    emailField,
+  // Staff accounts unlock the admin panel, so require 12+ characters on top of the usual rules.
+  password: passwordField.pipe(z.string().min(12, "Staff passwords need at least 12 characters")),
+  role:     z.enum(["MODERATOR", "ADMIN"]),
+});
+
 // ─── Exported types ────────────────────────────────────────────────────────────
 
 export type SignupStep1 = z.infer<typeof signupStep1Schema>;

@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { decrypt, hashForLookup } from "@/lib/encryption";
+import { createStaffAccountAs, type CreateStaffResult } from "@/lib/staff";
 import { AUTH_COOKIE_NAME, validateSession } from "@/lib/session";
 import { isAdmin, canManageAdmins } from "@/lib/roles";
 
@@ -36,6 +37,22 @@ export type PromoteResult =
 export type RevokeResult =
   | { success: true }
   | { success: false; error: string };
+
+export type { CreateStaffResult } from "@/lib/staff";
+
+// ─── createStaffAccount ───────────────────────────────────────────────────────
+// formData: name, email, password, role ("MODERATOR" | "ADMIN"). Logic lives in lib/staff.ts.
+
+export async function createStaffAccount(formData: FormData): Promise<CreateStaffResult> {
+  const session = await getAdminSession();
+  if (!session) return { success: false, error: "Unauthorized." };
+  return createStaffAccountAs(session.user, {
+    name:     formData.get("name") ?? "",
+    email:    formData.get("email") ?? "",
+    password: formData.get("password") ?? "",
+    role:     formData.get("role") ?? "MODERATOR",
+  });
+}
 
 // ─── getTeam ──────────────────────────────────────────────────────────────────
 // Admins see moderators; the super admin sees moderators and admins.

@@ -16,6 +16,7 @@ const { signUploadMetadata, verifyUploadMetadata } = await import("../lib/upload
 const { POST: authPost } = await import("../app/api/auth/[...all]/route");
 const { POST: uploadPost } = await import("../app/api/upload/route");
 const { NextRequest } = await import("next/server");
+const { createStaffAccountAs } = await import("../lib/staff");
 
 const restorers: (() => void)[] = [];
 function stub(target: object, name: string, implementation: (...args: unknown[]) => unknown) {
@@ -99,6 +100,67 @@ test("verified staff sign in with their original password and safe user fields",
   assert.equal(result.user.role, "SUPERADMIN");
   assert.match(result.cookieHeader, /HttpOnly/);
   assert.equal("hashedPassword" in result.user, false);
+});
+
+const superAdmin = { id: crypto.randomUUID(), name: "Owner", role: "SUPERADMIN" as const };
+const admin      = { id: crypto.randomUUID(), name: "Staff Admin", role: "ADMIN" as const };
+const staffInput = { name: "New Staff", email: " New.Staff@Example.test ", password: "Strong-Pass-123", role: "ADMIN" };
+
+test("super admin creates a verified admin account that can sign in at the staff login", async () => {
+  stub(db.user, "findUnique", async () => null);
+  let stored: Record<string, unknown> = {};
+  const create = stub(db.user, "create", async (args) => {
+    stored = (args as { data: Record<string, unknown> }).data;
+    return { id: "created-id" };
+  });
+  const auditLog = stub(db.auditLog, "create", async () => ({}));
+  const result = await createStaffAccountAs(superAdmin, staffInput);
+  assert.deepEqual(result, { success: true, role: "ADMIN" });
+  assert.equal(create.mock.callCount(), 1);
+  assert.equal(auditLog.mock.callCount(), 1);
+  assert.equal(stored.role, "ADMIN");
+  assert.equal(stored.emailVerified, true);
+  assert.equal("email" in stored, false);
+  assert.notEqual(stored.hashedPassword, staffInput.password);
+
+  // The stored record must work with the real staff login (lowercased email, argon2 hash).
+  restorers.splice(0).reverse().forEach((restore) => restore());
+  stub(db.user, "findUnique", async () => ({ ...user, ...stored, id: "created-id" }));
+  stub(db.session, "create", async () => sessionFixture());
+  const login = await loginWithEmail({ email: "new.staff@example.test", password: staffInput.password, allowedRoles: ["SUPERADMIN", "ADMIN", "MODERATOR"] });
+  assert.ok(login.ok);
+  assert.equal(login.user.email, "new.staff@example.test");
+  assert.equal(login.user.role, "ADMIN");
+});
+
+test("only the super admin can create admins; admins may create moderators", async () => {
+  const create = stub(db.user, "create", async () => ({ id: "created-id" }));
+  stub(db.user, "findUnique", async () => null);
+  stub(db.auditLog, "create", async () => ({}));
+  const denied = await createStaffAccountAs(admin, staffInput);
+  assert.equal(denied.success, false);
+  assert.equal(create.mock.callCount(), 0);
+  const allowed = await createStaffAccountAs(admin, { ...staffInput, role: "MODERATOR" });
+  assert.deepEqual(allowed, { success: true, role: "MODERATOR" });
+  for (const actor of [{ ...admin, role: "MODERATOR" as const }, { ...admin, role: "USER" as const }]) {
+    assert.equal((await createStaffAccountAs(actor, { ...staffInput, role: "MODERATOR" })).success, false);
+  }
+  assert.equal((await createStaffAccountAs(superAdmin, { ...staffInput, role: "SUPERADMIN" })).success, false);
+  assert.equal(create.mock.callCount(), 1);
+});
+
+test("staff account creation rejects weak passwords and existing emails", async () => {
+  const create = stub(db.user, "create", async () => ({ id: "created-id" }));
+  stub(db.user, "findUnique", async () => null);
+  const weak = await createStaffAccountAs(superAdmin, { ...staffInput, password: "Short-Pass1" });
+  assert.equal(weak.success, false);
+  restorers.splice(0).reverse().forEach((restore) => restore());
+  const create2 = stub(db.user, "create", async () => ({ id: "created-id" }));
+  stub(db.user, "findUnique", async () => ({ id: "existing" }));
+  const dup = await createStaffAccountAs(superAdmin, staffInput);
+  assert.equal(dup.success, false);
+  if (!dup.success) assert.match(dup.error, /already exists/);
+  assert.equal(create.mock.callCount() + create2.mock.callCount(), 0);
 });
 
 test("database failures return a useful login error without throwing", async () => {
