@@ -107,6 +107,13 @@ async function main() {
     // Idempotent: make sure the SUPERADMIN enum value exists (see prisma/patches).
     await db.$executeRawUnsafe(`ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'SUPERADMIN'`);
 
+    // Idempotent: guest (no-login) report columns (see prisma/patches/add-guest-reports.sql).
+    const guestPatch = readFileSync(resolve("prisma/patches/add-guest-reports.sql"), "utf8")
+      .split("\n").filter((l) => !l.trim().startsWith("--")).join("\n")
+      .split(";").map((s) => s.trim()).filter(Boolean);
+    for (const stmt of guestPatch) await db.$executeRawUnsafe(stmt);
+    console.log(`  guest-report schema patch applied (${guestPatch.length} statements).`);
+
     if (specs.length === 0) {
       console.log("PROVISION_ACCOUNTS not set — role patch applied, no accounts provisioned.");
       return;
