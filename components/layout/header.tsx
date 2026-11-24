@@ -3,6 +3,7 @@ import { Shield } from "lucide-react";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, validateSession } from "@/lib/session";
 import { LogoutButton } from "./logout-button";
+import { isStaff } from "@/lib/roles";
 
 export async function Header() {
   const cookieStore = await cookies();
@@ -47,27 +48,22 @@ export async function Header() {
 
           <div className="mx-3 hidden h-4 w-px bg-white/15 sm:block" aria-hidden="true" />
 
+          {/* Reporters never sign in. Only staff (signed in via /admin/login) see account controls. */}
           {session ? (
             <>
               <span className="hidden max-w-[140px] truncate rounded-lg px-3 py-2 text-sm text-white/30 sm:block">
                 {session.user.name}
               </span>
               <Link
-                href="/report"
+                href={isStaff(session.user.role) ? "/admin" : "/report"}
                 className="hidden rounded-lg px-3 py-2 text-sm text-white/55 transition-colors hover:bg-white/5 hover:text-white sm:block"
               >
-                My Reports
+                {isStaff(session.user.role) ? "Admin panel" : "Report"}
               </Link>
               <LogoutButton />
             </>
           ) : (
             <>
-              <Link
-                href="/login"
-                className="hidden rounded-lg px-3 py-2 text-sm text-white/55 transition-colors hover:bg-white/5 hover:text-white sm:block"
-              >
-                Sign in
-              </Link>
               <Link
                 href="/report"
                 className="ml-1 rounded-full bg-[#e60000] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#cc0000]"

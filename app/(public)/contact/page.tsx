@@ -126,10 +126,10 @@ export default function ContactPage() {
                   এই ফর্মটি শুধুমাত্র সাধারণ অনুসন্ধানের জন্য। সুরক্ষিত অভিযোগ রিপোর্ট জমা দিতে:
                 </p>
                 <a
-                  href="/signup"
+                  href="/report"
                   className="mt-3 inline-block rounded-lg bg-[#e60000] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#cc0000]"
                 >
-                  অ্যাকাউন্ট তৈরি করুন →
+                  লগইন ছাড়াই রিপোর্ট করুন →
                 </a>
               </div>
             </div>

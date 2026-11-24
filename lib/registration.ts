@@ -18,6 +18,12 @@ export async function registerAccount(
   d: RegistrationData,
   meta: { ipAddress?: string; userAgent?: string } = {},
 ): Promise<RegistrationResult> {
+  // Public sign-up is retired: reporters submit without an account and staff
+  // accounts come from scripts/provision-accounts.ts. Set PUBLIC_SIGNUP_ENABLED=true
+  // only if self-registration is ever needed again.
+  if (process.env.PUBLIC_SIGNUP_ENABLED !== "true") {
+    return { ok: false, reason: "unavailable", message: "Sign-up is disabled. You can submit a report without an account." };
+  }
   try {
     const emailHash = hashForLookup(d.email);
     if (await db.user.findUnique({ where: { emailHash }, select: { id: true } })) {

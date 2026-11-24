@@ -1119,12 +1119,7 @@ export function ReportForm({ isGuest = false }: { isGuest?: boolean }) {
 
         {/* ── Submit buttons ─────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
-          {isGuest ? (
-            <Link href="/login"
-              className="rounded-lg border border-gray-200 px-6 py-3 text-center text-sm font-semibold text-[#25282b] transition-colors hover:bg-gray-50">
-              খসড়া রাখতে লগইন করুন
-            </Link>
-          ) : (
+          {!isGuest && (
           <button
             type="button" onClick={handleDraft}
             disabled={isPending || anyUploading}

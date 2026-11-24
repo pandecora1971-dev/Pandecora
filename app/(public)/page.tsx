@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import {
   Lock,
   EyeOff,
@@ -24,7 +23,6 @@ import {
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { ScrollAnimations } from "@/components/scroll-animations";
-import { AUTH_COOKIE_NAME } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Pandecora — Report Safely",
@@ -46,8 +44,8 @@ const FEATURES = [
   { Icon: EyeOff,      title: "Identity Protected",        body: "Only verified administrators with the correct keys can decrypt your identity. Everyone else sees only ciphertext." },
   { Icon: FileCheck,   title: "Encrypted Evidence",        body: "Upload documents, images, and video evidence within the displayed file limit. Every byte is encrypted on arrival — zero plaintext on disk." },
   { Icon: Fingerprint, title: "Tamper-Proof Audit Trail",  body: "Every admin action — view, download, status change, delete — is permanently logged with timestamp and IP." },
-  { Icon: Clock,       title: "Draft & Resume Later",      body: "Start a report and save it as a draft. Return any time to complete and submit when you are ready." },
-  { Icon: Users,       title: "Multi-Role Access Control", body: "Strict role separation ensures reporters and administrators can only perform actions appropriate to their role." },
+  { Icon: Clock,       title: "No Account Needed",         body: "No sign-up, no password, no email. Open the form, describe what happened, and submit. Stay fully anonymous if you want." },
+  { Icon: Users,       title: "Track With a Code",         body: "Every report gets a private tracking code. Use it any time to see whether your report is pending, under review or resolved." },
 ] as const;
 
 const PIPELINE = [
@@ -58,9 +56,9 @@ const PIPELINE = [
 ] as const;
 
 const STEPS = [
-  { n: "01", title: "Create a secure account",  body: "Register with your institution details. Your email, phone, and personal information are encrypted the moment you sign up." },
+  { n: "01", title: "Open the report form",     body: "No account or login needed. Choose to stay fully anonymous, or share contact details so reviewers can follow up — your choice." },
   { n: "02", title: "Describe the incident",    body: "Choose a category, set urgency, and write a full description. Attach files, screenshots, and links as evidence." },
-  { n: "03", title: "Submit with confidence",   body: "Your report is encrypted before storage. Only authorised administrators can review it, and every access is logged." },
+  { n: "03", title: "Save your tracking code",  body: "Your report is encrypted before storage. Keep the tracking code you receive to check its status later — only reviewers can read the content." },
 ] as const;
 
 const CATEGORIES = [
@@ -113,11 +111,9 @@ const COMPARE_NEW = [
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function HomePage() {
-  const cookieStore = await cookies();
-  const isLoggedIn  = !!cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  // Reporting no longer needs an account — everyone goes straight to the form
+  // Reporting never needs an account — everyone goes straight to the form
   const ctaHref     = "/report";
-  const ctaLabel    = isLoggedIn ? "Submit a Report" : "Report Anonymously — No Login";
+  const ctaLabel    = "Report an Incident";
 
   return (
     <>
@@ -420,7 +416,7 @@ export default async function HomePage() {
             <p data-animate="up" className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#e60000]">Who Can Report</p>
             <h2 data-animate="up" data-delay="100" className="text-4xl font-black tracking-tight text-[#25282b]">Open to all educational institutions</h2>
             <p data-animate="up" data-delay="200" className="mx-auto mt-4 max-w-xl text-base font-light text-[#7e7e7e]">
-              Students and teachers across every type of institution in Bangladesh can register and submit reports.
+              Students, teachers and anyone connected to an institution in Bangladesh can submit a report — no registration required.
             </p>
           </div>
 

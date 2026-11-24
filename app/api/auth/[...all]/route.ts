@@ -167,6 +167,7 @@ export async function POST(req: NextRequest, ctx: Context) {
   switch (all.join("/")) {
     case "login":  return handleLogin(req);
     case "logout": return handleLogout(req);
+    // Disabled unless PUBLIC_SIGNUP_ENABLED=true (enforced in registerAccount)
     case "signup": return handleSignup(req);
     default:       return err("Not found", 404);
   }

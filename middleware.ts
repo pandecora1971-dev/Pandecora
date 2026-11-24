@@ -154,7 +154,14 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    if ((isAuthPage || pathname === "/admin/login") && session) {
+    // Public accounts are retired: reporters never sign in. Old /login and
+    // /signup links land on the report form (staff go to their panel).
+    if (isAuthPage) {
+      const dest = session && isStaff(session.user.role) ? "/admin" : "/report";
+      return finish(NextResponse.redirect(new URL(dest, req.url)));
+    }
+
+    if (pathname === "/admin/login" && session) {
       return finish(NextResponse.redirect(new URL(isStaff(session.user.role) ? "/admin" : "/report", req.url)));
     }
     sessionExpiry = session?.session.expiresAt;

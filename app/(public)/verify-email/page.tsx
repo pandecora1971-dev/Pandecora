@@ -36,10 +36,10 @@ export default async function VerifyEmailPage({ searchParams }: Props) {
             Your account is now active. You can sign in and start submitting reports.
           </p>
           <Link
-            href="/login"
+            href="/report"
             className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#e60000] px-8 py-3.5 text-sm font-bold text-white transition-colors hover:bg-[#cc0000]"
           >
-            অ্যাকাউন্টে লগইন করুন
+            রিপোর্ট জমা দিন
             <ArrowRight size={15} />
           </Link>
         </div>

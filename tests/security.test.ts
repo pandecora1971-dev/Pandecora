@@ -120,7 +120,21 @@ test("unknown accounts have the same failed-attempt lockout as known accounts", 
   clearLoginAttempts(hashForLookup(address));
 });
 
-test("API signup creates a verification token and preserves professional fields without issuing a session", async () => {
+test("public signup is disabled by default and creates no account", async () => {
+  delete process.env.PUBLIC_SIGNUP_ENABLED;
+  const create = stub(db.user, "create", () => { throw Error("Unexpected account creation"); });
+  const response = await authPost(new NextRequest("http://localhost/api/auth/signup", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      name: "Test Doctor", email: "doctor@example.test", phone: "01712345678",
+      password: "Valid-Pass123", confirmPassword: "Valid-Pass123", teacherOrStudent: "DOCTOR",
+      division: "Dhaka", district: "Dhaka", upazila: "Dhamrai", licenseNumber: "TEST-123", organizationName: "Test Clinic",
+    }) }), { params: Promise.resolve({ all: ["signup"] }) });
+  assert.equal(response.status, 503);
+  assert.equal(create.mock.callCount(), 0);
+});
+
+test("API signup (when re-enabled) creates a verification token and preserves professional fields without issuing a session", async () => {
+  process.env.PUBLIC_SIGNUP_ENABLED = "true";
   stub(db.user, "findUnique", async () => null);
   let created: Record<string, unknown> = {};
   stub(db.user, "create", async (args) => { created = (args as { data: Record<string, unknown> }).data; return { id: user.id }; });
@@ -142,6 +156,7 @@ test("API signup creates a verification token and preserves professional fields 
   assert.equal(created.organizationName, "Test Clinic");
   assert.ok(created.verificationTokens);
   assert.equal(sessions.mock.callCount(), 0);
+  delete process.env.PUBLIC_SIGNUP_ENABLED;
 });
 
 test("API login preserves the unverified_email reason", async () => {

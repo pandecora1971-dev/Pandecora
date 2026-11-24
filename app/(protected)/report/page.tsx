@@ -131,9 +131,7 @@ export default async function ReportPage() {
                 </p>
               </div>
               <div className="flex shrink-0 gap-2 text-xs font-semibold">
-                <Link href="/track" className="rounded-lg border border-gray-200 px-3 py-2 text-[#25282b] hover:bg-gray-50">অবস্থা দেখুন</Link>
-                <Link href="/login" className="rounded-lg border border-gray-200 px-3 py-2 text-[#25282b] hover:bg-gray-50">লগইন</Link>
-              </div>
+                <Link href="/track" className="rounded-lg border border-gray-200 px-3 py-2 text-[#25282b] hover:bg-gray-50">অবস্থা দেখুন</Link>              </div>
             </div>
           )}
           <ReportForm isGuest={isGuest} />

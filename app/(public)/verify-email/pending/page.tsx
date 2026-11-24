@@ -80,10 +80,10 @@ export default async function PendingPage() {
 
             <p className="mt-6 text-center text-xs text-[#7e7e7e]">
               ইতোমধ্যে যাচাই হয়েছে?{" "}
-              <a href="/login" className="font-semibold text-[#e60000] hover:underline">
-                লগইন করুন
+              <a href="/report" className="font-semibold text-[#e60000] hover:underline">
+                রিপোর্ট করুন
               </a>
-              <span className="ml-1 text-[#7e7e7e]">(Already verified? Sign in)</span>
+              <span className="ml-1 text-[#7e7e7e]">(Go to the report form)</span>
             </p>
           </div>
         </div>

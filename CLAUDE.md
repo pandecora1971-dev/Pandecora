@@ -45,7 +45,9 @@ A cybersecurity incident reporting platform for educational institutions in Bang
 ```
 app/
   (public)/          — home page (/)
-  (auth)/
+  (auth)/            — RETIRED for the public: middleware redirects /login and /signup* to /report.
+                       Reporters never sign in; registerAccount() refuses unless PUBLIC_SIGNUP_ENABLED=true.
+                       Only staff log in, at /admin/login.
     login/           — /login
     signup/          — /signup (step 1: personal info)
     signup/location/ — /signup/location (step 2: institution + location)
