@@ -16,7 +16,9 @@ import {
   Check,
   Paperclip,
 } from "lucide-react";
+import Link from "next/link";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
+import { BANGLADESH_LOCATIONS } from "@/lib/bangladesh-locations";
 import { submitReport, saveDraft } from "@/app/(protected)/report/actions";
 import type { FileMetadata } from "@/app/(protected)/report/actions";
 
@@ -395,11 +397,14 @@ function LinksList({ links, onChange }: { links: string[]; onChange: (links: str
 
 // ─── SuccessModal ─────────────────────────────────────────────────────────────
 
-function SuccessModal({ id, onClose }: { id: string; onClose: () => void }) {
+function SuccessModal({
+  id, trackingCode, onClose,
+}: { id: string; trackingCode?: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const shown = trackingCode ?? id;
 
   function copy() {
-    navigator.clipboard.writeText(id).then(() => {
+    navigator.clipboard.writeText(shown).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -419,16 +424,35 @@ function SuccessModal({ id, onClose }: { id: string; onClose: () => void }) {
         </h2>
         <p className="text-center text-xs text-[#7e7e7e]">Report submitted</p>
         <p className="mt-2 text-center text-sm text-[#7e7e7e]">
-          আপনার রিপোর্ট গৃহীত ও সুরক্ষিতভাবে সংরক্ষিত হয়েছে। নিচের রেফারেন্স আইডিটি সংরক্ষণ করুন।
+          {trackingCode
+            ? "আপনার রিপোর্ট গৃহীত হয়েছে। নিচের ট্র্যাকিং কোডটি লিখে রাখুন — এটি দিয়ে পরে রিপোর্টের অবস্থা জানতে পারবেন।"
+            : "আপনার রিপোর্ট গৃহীত ও সুরক্ষিতভাবে সংরক্ষিত হয়েছে। নিচের রেফারেন্স আইডিটি সংরক্ষণ করুন।"}
         </p>
 
         <div className="mt-5 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-          <code className="flex-1 truncate font-mono text-xs text-[#25282b]">{id}</code>
-          <button type="button" onClick={copy} aria-label="Copy report ID"
+          <code className={cn(
+            "flex-1 truncate font-mono text-[#25282b]",
+            trackingCode ? "text-center text-lg font-bold tracking-widest" : "text-xs"
+          )}>{shown}</code>
+          <button type="button" onClick={copy} aria-label="Copy tracking code"
             className="shrink-0 rounded p-1 text-gray-400 hover:text-[#25282b] transition-colors">
             {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
           </button>
         </div>
+
+        {trackingCode && (
+          <p className="mt-3 text-center text-xs text-[#e60000]">
+            এই কোডটি আর দেখানো হবে না। হারালে পুনরুদ্ধার করা যাবে না।
+            <span className="block text-[11px] text-[#7e7e7e]">This code is shown only once.</span>
+          </p>
+        )}
+
+        {trackingCode && (
+          <Link href="/track"
+            className="mt-4 block text-center text-xs font-semibold text-[#e60000] hover:underline">
+            রিপোর্টের অবস্থা দেখুন (Track status) →
+          </Link>
+        )}
 
         <button
           type="button" onClick={onClose}
@@ -589,7 +613,7 @@ function AdditionalPartyCard({
 
 // ─── ReportForm ───────────────────────────────────────────────────────────────
 
-export function ReportForm() {
+export function ReportForm({ isGuest = false }: { isGuest?: boolean }) {
   const [category,    setCategory]    = useState("");
   const [urgency,     setUrgency]     = useState("");
   const [description, setDescription] = useState("");
@@ -615,6 +639,16 @@ export function ReportForm() {
   const [isPending,  startTransition] = useTransition();
   const [error,      setError]        = useState<string | null>(null);
   const [successId,  setSuccessId]    = useState<string | null>(null);
+  const [trackingCode, setTrackingCode] = useState<string | undefined>(undefined);
+
+  // Guest identity — anonymous by default (controlled radio, see CLAUDE.md)
+  const [identityMode,     setIdentityMode]     = useState<"anonymous" | "contact">("anonymous");
+  const [guestName,        setGuestName]        = useState("");
+  const [guestContact,     setGuestContact]     = useState("");
+  const [guestInstitution, setGuestInstitution] = useState("");
+  const [guestDivision,    setGuestDivision]    = useState("");
+  const [guestDistrict,    setGuestDistrict]    = useState("");
+  const [honeypot,         setHoneypot]         = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
 
   const hasChanges =
@@ -699,6 +733,17 @@ export function ReportForm() {
       additionalFiles:     apFiles,
       additionalVideoFile: apVideo ? toMeta(apVideo) : undefined,
       additionalLinks:     apLinks,
+      website:             honeypot || undefined,
+      guest: isGuest ? {
+        // Region is coarse and helps routing, so it is kept even when anonymous
+        division:    guestDivision || undefined,
+        district:    guestDistrict || undefined,
+        ...(identityMode === "contact" ? {
+          name:        guestName.trim()        || undefined,
+          contact:     guestContact.trim()     || undefined,
+          institution: guestInstitution.trim() || undefined,
+        } : {}),
+      } : undefined,
     };
   }
 
@@ -708,7 +753,9 @@ export function ReportForm() {
     setAccusedName(""); setAccusedDetails(""); setAccusedFiles([]);
     setAccusedVideoFile(null); setAccusedVideoProgress(0); setAccusedLinks([""]);
     setAdditionalParties([]);
-    setError(null); setSuccessId(null);
+    setError(null); setSuccessId(null); setTrackingCode(undefined);
+    setIdentityMode("anonymous"); setGuestName(""); setGuestContact("");
+    setGuestInstitution(""); setGuestDivision(""); setGuestDistrict("");
   }
 
   const hasEvidenceEvidence =
@@ -738,6 +785,7 @@ export function ReportForm() {
     startTransition(async () => {
       const result = await submitReport(buildPayload());
       if (!result.success) { setError(result.error); return; }
+      setTrackingCode(result.trackingCode);
       setSuccessId(result.submissionId);
     });
   }
@@ -753,7 +801,7 @@ export function ReportForm() {
 
   return (
     <>
-      {successId && <SuccessModal id={successId} onClose={resetForm} />}
+      {successId && <SuccessModal id={successId} trackingCode={trackingCode} onClose={resetForm} />}
 
       <div className="space-y-5">
 
@@ -976,8 +1024,107 @@ export function ReportForm() {
           </div>
         </section>
 
+        {/* ── Section 4 (guests only): Your identity — optional ─────────── */}
+        {isGuest && (
+          <section className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50/80 px-6 py-4">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#25282b] text-xs font-black text-white">
+                4
+              </span>
+              <span className="flex-1 text-base font-bold text-[#25282b]">
+                আপনার পরিচয়
+                <span className="ml-2 text-xs font-normal text-[#7e7e7e]">(Your Identity)</span>
+              </span>
+              <span className="text-xs text-[#7e7e7e]">ঐচ্ছিক (optional)</span>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Identity">
+                {([
+                  { v: "anonymous", t: "সম্পূর্ণ বেনামে", s: "Fully anonymous — no name or contact" },
+                  { v: "contact",   t: "যোগাযোগের তথ্য দিন", s: "Share contact so reviewers can follow up" },
+                ] as const).map((o) => (
+                  <label key={o.v}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors",
+                      identityMode === o.v ? "border-[#e60000] bg-[#e60000]/5" : "border-gray-200 hover:border-gray-300"
+                    )}>
+                    <input type="radio" name="identityMode" value={o.v}
+                      checked={identityMode === o.v}
+                      onChange={() => setIdentityMode(o.v)}
+                      className="mt-0.5 accent-[#e60000]" />
+                    <span>
+                      <span className="block text-sm font-semibold text-[#25282b]">{o.t}</span>
+                      <span className="block text-xs text-[#7e7e7e]">{o.s}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {identityMode === "contact" && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Name" labelBn="নাম" id="guestName">
+                    <input id="guestName" type="text" value={guestName} maxLength={120}
+                      onChange={(e) => setGuestName(e.target.value)}
+                      placeholder="আপনার নাম (ঐচ্ছিক)" className={fieldInput} />
+                  </Field>
+                  <Field label="Phone or Email" labelBn="ফোন বা ইমেইল" id="guestContact">
+                    <input id="guestContact" type="text" value={guestContact} maxLength={160}
+                      onChange={(e) => setGuestContact(e.target.value)}
+                      placeholder="01XXXXXXXXX বা email@example.com" className={fieldInput} />
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Institution" labelBn="প্রতিষ্ঠান" id="guestInstitution">
+                      <input id="guestInstitution" type="text" value={guestInstitution} maxLength={200}
+                        onChange={(e) => setGuestInstitution(e.target.value)}
+                        placeholder="যে প্রতিষ্ঠানে ঘটনা ঘটেছে (ঐচ্ছিক)" className={fieldInput} />
+                    </Field>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Division" labelBn="বিভাগ (এলাকা)" id="guestDivision">
+                  <select id="guestDivision" value={guestDivision}
+                    onChange={(e) => { setGuestDivision(e.target.value); setGuestDistrict(""); }}
+                    className={fieldInput}>
+                    <option value="">নির্বাচন করুন…</option>
+                    {Object.keys(BANGLADESH_LOCATIONS).map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </Field>
+                <Field label="District" labelBn="জেলা" id="guestDistrict">
+                  <select id="guestDistrict" value={guestDistrict} disabled={!guestDivision}
+                    onChange={(e) => setGuestDistrict(e.target.value)}
+                    className={cn(fieldInput, "disabled:opacity-50")}>
+                    <option value="">নির্বাচন করুন…</option>
+                    {Object.keys(BANGLADESH_LOCATIONS[guestDivision] ?? {}).map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <p className="text-xs text-[#7e7e7e]">
+                যা দেবেন সব এনক্রিপ্ট করে রাখা হয়। আপনার IP বা ডিভাইসের তথ্য রিপোর্টের সাথে সংরক্ষণ করা হয় না।
+                <span className="block text-[11px]">Everything you share is encrypted. Your IP and device are not stored with the report.</span>
+              </p>
+
+              {/* Honeypot — hidden from people and screen readers */}
+              <div aria-hidden="true" className="hidden">
+                <label htmlFor="website">Website</label>
+                <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off"
+                  value={honeypot} onChange={(e) => setHoneypot(e.target.value)} />
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* ── Submit buttons ─────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
+          {isGuest ? (
+            <Link href="/login"
+              className="rounded-lg border border-gray-200 px-6 py-3 text-center text-sm font-semibold text-[#25282b] transition-colors hover:bg-gray-50">
+              খসড়া রাখতে লগইন করুন
+            </Link>
+          ) : (
           <button
             type="button" onClick={handleDraft}
             disabled={isPending || anyUploading}
@@ -985,6 +1132,7 @@ export function ReportForm() {
           >
             {isPending ? "সংরক্ষণ হচ্ছে…" : "খসড়া হিসেবে সংরক্ষণ করুন"}
           </button>
+          )}
           <button
             type="button" onClick={handleSubmit}
             disabled={isPending || anyUploading}

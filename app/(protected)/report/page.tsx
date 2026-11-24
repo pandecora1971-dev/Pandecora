@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import { cookies } from "next/headers";
 import { Header } from "@/components/layout/header";
+import { AUTH_COOKIE_NAME, validateSession } from "@/lib/session";
 
 // Code-split the report form so its large JS chunk is not included in the
 // initial page bundle. Next.js still SSRs the skeleton, then swaps in the
@@ -22,7 +25,11 @@ export const metadata: Metadata = {
   title: "অভিযোগ রিপোর্ট জমা দিন — Pandecora",
 };
 
-export default function ReportPage() {
+export default async function ReportPage() {
+  const token   = (await cookies()).get(AUTH_COOKIE_NAME)?.value;
+  const session = token ? await validateSession(token) : null;
+  const isGuest = !session;
+
   return (
     <>
       <Header />
@@ -114,7 +121,22 @@ export default function ReportPage() {
 
       <main className="bg-gray-50 min-h-screen">
         <div className="mx-auto max-w-2xl px-4 py-10">
-          <ReportForm />
+          {isGuest && (
+            <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-bold text-[#25282b]">লগইন ছাড়াই রিপোর্ট করছেন</p>
+                <p className="text-xs text-[#7e7e7e]">
+                  অ্যাকাউন্ট লাগবে না। জমা দেওয়ার পর একটি ট্র্যাকিং কোড পাবেন।
+                  <span className="block text-[11px]">No account needed — you will get a tracking code after submitting.</span>
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2 text-xs font-semibold">
+                <Link href="/track" className="rounded-lg border border-gray-200 px-3 py-2 text-[#25282b] hover:bg-gray-50">অবস্থা দেখুন</Link>
+                <Link href="/login" className="rounded-lg border border-gray-200 px-3 py-2 text-[#25282b] hover:bg-gray-50">লগইন</Link>
+              </div>
+            </div>
+          )}
+          <ReportForm isGuest={isGuest} />
         </div>
       </main>
     </>

@@ -240,15 +240,26 @@ export default function SubmissionDetailClient({ submission, canDelete, canDownl
                   {submission.submitter.name}
                 </p>
                 <span className="mt-1 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-blue-700">
-                  {submission.submitter.role.charAt(0) + submission.submitter.role.slice(1).toLowerCase()}
+                  {submission.submitter.isGuest
+                    ? "Guest — no account"
+                    : submission.submitter.role.charAt(0) + submission.submitter.role.slice(1).toLowerCase()}
                 </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-4">
-              <Field label="Email" value={submission.submitter.email} />
-              <Field label="Phone" value={submission.submitter.phone} />
-            </div>
+            {submission.submitter.isGuest ? (
+              <div className="grid grid-cols-1 gap-3 mb-4">
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Submitted without logging in. Identity is unverified; only details the reporter chose to share are shown.
+                </p>
+                <Field label="Contact (phone / email)" value={submission.submitter.phone} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-4">
+                <Field label="Email" value={submission.submitter.email} />
+                <Field label="Phone" value={submission.submitter.phone} />
+              </div>
+            )}
 
             <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3.5 space-y-3">
               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-500">

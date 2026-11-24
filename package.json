@@ -12,6 +12,7 @@
     "test": "tsx --tsconfig tests/tsconfig.json --conditions=react-server --test tests/*.test.ts",
     "db:generate": "prisma generate",
     "db:prepare:roles": "prisma db execute --file prisma/patches/add-superadmin.sql --schema prisma/schema.prisma",
+    "db:prepare:guest": "prisma db execute --file prisma/patches/add-guest-reports.sql --schema prisma/schema.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",

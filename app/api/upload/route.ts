@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { encrypt, createEncryptCipher } from "@/lib/encryption";
 import { rateLimitByIP, rateLimitByUser } from "@/lib/rate-limit";
+import { GUEST_COOKIE_NAME, guestPrincipal, isValidGuestId } from "@/lib/guest";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ const USER_QUOTA_BYTES  = 5 * 1024 * 1024 * 1024;   // 5 GB per user
 // Per spec: 20 uploads per hour per user. IP gate is lighter (pre-auth defense).
 const IP_LIMIT   = { max: 60, windowMs: 60 * 60_000 } as const;
 const USER_LIMIT = { max: 20, windowMs: 60 * 60_000 } as const;
+const GUEST_LIMIT = { max: 10, windowMs: 60 * 60_000 } as const;
 
 // ─── Allowed MIME types ───────────────────────────────────────────────────────
 
@@ -193,25 +195,33 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Authentication ────────────────────────────────────────────────────────
+  // Signed-in users upload under their account; guests (no-login reports)
+  // upload under the random pd_guest cookie set when they opened /report.
   const session = await auth.api.getSession({ headers: req.headers });
-  if (!session) {
+  const guestId = req.cookies.get(GUEST_COOKIE_NAME)?.value;
+  if (!session && !isValidGuestId(guestId)) {
     uploadLog("warn", "unauthorized", { ip });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = session.user.id;
-
-  // ── Per-user rate limit (20 / hour per spec) ──────────────────────────────
-  const userRl = await rateLimitByUser(userId, USER_LIMIT.max, USER_LIMIT.windowMs, "upload");
-  if (!userRl.success) {
-    uploadLog("warn", "rate_limited_user", { userId, ip });
     return NextResponse.json(
-      { error: "Upload limit reached (20 per hour). Please try again later." },
+      { error: "Session expired. Please reload the report page and try again." },
+      { status: 401 }
+    );
+  }
+  const userId = session ? session.user.id : guestPrincipal(guestId!);
+
+  // ── Per-principal rate limit (20 / hour users, 10 / hour per guest IP) ────
+  const userRl = session
+    ? await rateLimitByUser(userId, USER_LIMIT.max, USER_LIMIT.windowMs, "upload")
+    : await rateLimitByIP(ip, GUEST_LIMIT.max, GUEST_LIMIT.windowMs, "upload:guest");
+  if (!userRl.success) {
+    uploadLog("warn", "rate_limited_user", { userId: session ? userId : "guest", ip });
+    return NextResponse.json(
+      { error: "Upload limit reached. Please try again later." },
       { status: 429, headers: { "Retry-After": String(Math.ceil(userRl.resetIn / 1000)) } }
     );
   }
 
-  // ── Storage quota check ───────────────────────────────────────────────────
-  const storageUsed = await getUserStorageBytes(userId);
+  // ── Storage quota check (accounts only — guests are bounded by rate limit) ─
+  const storageUsed = session ? await getUserStorageBytes(userId) : 0;
   if (storageUsed >= USER_QUOTA_BYTES) {
     uploadLog("warn", "quota_exceeded", { userId, storageUsed });
     return NextResponse.json(

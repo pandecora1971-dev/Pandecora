@@ -38,6 +38,12 @@ export async function Header() {
           >
             Contact
           </Link>
+          <Link
+            href="/track"
+            className="hidden rounded-lg px-3 py-2 text-sm text-white/50 transition-colors hover:bg-white/5 hover:text-white sm:block"
+          >
+            Track report
+          </Link>
 
           <div className="mx-3 hidden h-4 w-px bg-white/15 sm:block" aria-hidden="true" />
 
@@ -63,10 +69,10 @@ export async function Header() {
                 Sign in
               </Link>
               <Link
-                href="/signup"
+                href="/report"
                 className="ml-1 rounded-full bg-[#e60000] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#cc0000]"
               >
-                Get started
+                Report now
               </Link>
             </>
           )}

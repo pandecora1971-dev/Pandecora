@@ -115,8 +115,9 @@ const COMPARE_NEW = [
 export default async function HomePage() {
   const cookieStore = await cookies();
   const isLoggedIn  = !!cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const ctaHref     = isLoggedIn ? "/report"  : "/signup";
-  const ctaLabel    = isLoggedIn ? "Submit a Report" : "Report an Incident";
+  // Reporting no longer needs an account — everyone goes straight to the form
+  const ctaHref     = "/report";
+  const ctaLabel    = isLoggedIn ? "Submit a Report" : "Report Anonymously — No Login";
 
   return (
     <>

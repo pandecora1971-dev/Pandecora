@@ -159,9 +159,29 @@ model Session {
 // ─── Submission ───────────────────────────────────────────────────────────────
 
 model Submission {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String  @id @default(uuid())
+  // Null for guest (no-login) reports
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Guest reporting — submitted without an account
+  isGuest      Boolean @default(false)
+  // HMAC-SHA256 of the public tracking code (raw code is shown to the reporter once)
+  trackingHash String? @unique
+
+  // Optional guest contact details — all AES-256-GCM encrypted
+  encryptedGuestName        String?
+  guestNameIV               String?
+  guestNameTag              String?
+  encryptedGuestContact     String?
+  guestContactIV            String?
+  guestContactTag           String?
+  encryptedGuestInstitution String?
+  guestInstitutionIV        String?
+  guestInstitutionTag       String?
+  // Coarse region only (not PII) — plaintext for admin filtering
+  guestDivision String?
+  guestDistrict String?
 
   // Incident classification — stored as plaintext enums (not PII)
   category     IncidentCategory
@@ -204,6 +224,7 @@ model Submission {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([isGuest])
   @@index([category])
   @@index([urgencyLevel])
   @@index([createdAt])

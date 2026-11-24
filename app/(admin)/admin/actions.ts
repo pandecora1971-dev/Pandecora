@@ -178,6 +178,8 @@ export async function getSubmissions(
           status:       true,
           createdAt:    true,
           user: { select: { name: true, teacherOrStudent: true, institutionType: true, division: true } },
+          isGuest:       true,
+          guestDivision: true,
         },
         orderBy,
         skip: (safePage - 1) * PAGE_SIZE,
@@ -193,10 +195,10 @@ export async function getSubmissions(
       category:        r.category,
       urgencyLevel:    r.urgencyLevel,
       status:          r.status,
-      userName:        r.user.name,
-      userRole:        r.user.teacherOrStudent,
-      institutionType: r.user.institutionType,
-      division:        r.user.division,
+      userName:        r.user?.name ?? "Guest (no account)",
+      userRole:        r.user?.teacherOrStudent ?? "GUEST",
+      institutionType: r.user?.institutionType ?? null,
+      division:        r.user?.division ?? r.guestDivision ?? "—",
     }));
 
     return { success: true, rows, total };

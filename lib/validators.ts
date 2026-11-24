@@ -318,6 +318,23 @@ export const incidentReportSchema = z.object({
   additionalLinks: urlList.default([]),
 });
 
+// ─── 3b. guestReporterSchema (no-login reports — every field optional) ─────────
+
+export const guestReporterSchema = z.object({
+  name:        sso(120),
+  contact:     sso(160), // phone or email, free-form so reporters can choose
+  institution: sso(200),
+  division:    sso(60),
+  district:    sso(60),
+});
+
+// Public tracking code shown to reporters, e.g. PD-7K3QM-X9TFA
+export const trackingCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^PD-[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/, "Invalid tracking code");
+
 // ─── 4. loginSchema ───────────────────────────────────────────────────────────
 
 export const loginSchema = z.object({

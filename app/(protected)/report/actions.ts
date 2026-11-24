@@ -1,11 +1,15 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { db } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { AUTH_COOKIE_NAME, validateSession } from "@/lib/auth";
-import { rateLimitByUser } from "@/lib/rate-limit";
-import { incidentReportSchema } from "@/lib/validators";
+import { rateLimitByUser, rateLimitByIP } from "@/lib/rate-limit";
+import { incidentReportSchema, guestReporterSchema } from "@/lib/validators";
+import {
+  GUEST_COOKIE_NAME, isValidGuestId, guestPrincipal,
+  generateTrackingCode, hashTrackingCode,
+} from "@/lib/guest";
 import { audit } from "@/lib/audit";
 import { verifyUploadMetadata } from "@/lib/upload-metadata";
 import type { IncidentCategory, UrgencyLevel } from "@prisma/client";
@@ -56,6 +60,8 @@ function zodIssuesToBangla(issues: ZodIssue[]): string {
 // 5 final submissions per 24 hours; drafts get a more lenient 30/day limit.
 const SUBMIT_LIMIT = { max: 5,  windowMs: 24 * 60 * 60_000 } as const;
 const DRAFT_LIMIT  = { max: 30, windowMs: 24 * 60 * 60_000 } as const;
+// Guests (no login) are limited per IP: 3 reports per 24 hours.
+const GUEST_SUBMIT_LIMIT = { max: 3, windowMs: 24 * 60 * 60_000 } as const;
 
 // Upload route now stores blobs in DB and returns the blob UUID as the key.
 const KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,11 +97,23 @@ export interface ReportPayload {
   additionalFiles:       FileMetadata[];
   additionalVideoFile?:  FileMetadata;
   additionalLinks:       string[];
+  // Guest-only (ignored for signed-in users) — every field optional
+  guest?: GuestReporterInput;
+  // Honeypot — real users never see or fill this field
+  website?: string;
+}
+
+export interface GuestReporterInput {
+  name?:        string;
+  contact?:     string;
+  institution?: string;
+  division?:    string;
+  district?:    string;
 }
 
 // Discriminated union — callers check `result.success`
 export type ReportActionResult =
-  | { success: true;  submissionId: string }
+  | { success: true;  submissionId: string; trackingCode?: string }
   | { success: false; error: string };
 
 export interface DraftSummary {
@@ -131,6 +149,11 @@ async function getAuthenticatedSession() {
   return validateSession(token);
 }
 
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  return h.get("x-forwarded-for")?.split(",")[0].trim() ?? h.get("x-real-ip") ?? "unknown";
+}
+
 // ─── File validation ──────────────────────────────────────────────────────────
 
 async function fileExistsInDB(key: string): Promise<boolean> {
@@ -146,10 +169,10 @@ async function fileExistsInDB(key: string): Promise<boolean> {
  *
  * Returns an error string on the first violation, or null if all pass.
  */
-async function validateFileMetadata(files: FileMetadata[], userId: string): Promise<string | null> {
+async function validateFileMetadata(files: FileMetadata[], principal: string): Promise<string | null> {
   if (new Set(files.map((f) => f.key)).size !== files.length) return "Duplicate file references are not allowed.";
   for (const f of files) {
-    if (!verifyUploadMetadata(f, userId)) return "Invalid file reference. Please re-upload your files.";
+    if (!verifyUploadMetadata(f, principal)) return "Invalid file reference. Please re-upload your files.";
     if (!KEY_PATTERN.test(f.key)) {
       return "Invalid file reference (malformed key).";
     }
@@ -181,20 +204,57 @@ async function persistReport(
   status: "PENDING" | "DRAFT"
 ): Promise<ReportActionResult> {
 
-  // ── Authentication ────────────────────────────────────────────────────────
+  // ── Authentication — account or guest ─────────────────────────────────────
   const session = await getAuthenticatedSession();
-  if (!session) return { success: false, error: "Unauthorized." };
-  const userId = session.user.id;
+  const isGuest = !session;
+  let principal: string;
+
+  if (session) {
+    principal = session.user.id;
+  } else {
+    // Drafts need an account (there is nowhere to resume them from otherwise)
+    if (status === "DRAFT") return { success: false, error: "খসড়া সংরক্ষণ করতে লগইন করুন।" };
+    const guestId = (await cookies()).get(GUEST_COOKIE_NAME)?.value;
+    if (!isValidGuestId(guestId)) {
+      return { success: false, error: "সেশন শেষ হয়ে গেছে। পেজটি রিলোড করে আবার চেষ্টা করুন।" };
+    }
+    // Bots fill hidden fields; refuse without saying why
+    if (payload.website) return { success: false, error: "জমা দেওয়া যায়নি। আবার চেষ্টা করুন।" };
+    principal = guestPrincipal(guestId);
+  }
+  const userId = session?.user.id ?? null;
+  const logId  = userId ?? "guest";
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
-  const limit = status === "PENDING" ? SUBMIT_LIMIT : DRAFT_LIMIT;
-  const context = status === "PENDING" ? "submit" : "draft";
-  const rl = await rateLimitByUser(userId, limit.max, limit.windowMs, context);
-  if (!rl.success) {
-    const cap = status === "PENDING"
-      ? "5 final submissions per day"
-      : "30 draft saves per day";
-    return { success: false, error: `Rate limit reached (${cap}). Please try again later.` };
+  if (session) {
+    const limit = status === "PENDING" ? SUBMIT_LIMIT : DRAFT_LIMIT;
+    const context = status === "PENDING" ? "submit" : "draft";
+    const rl = await rateLimitByUser(session.user.id, limit.max, limit.windowMs, context);
+    if (!rl.success) {
+      const cap = status === "PENDING"
+        ? "5 final submissions per day"
+        : "30 draft saves per day";
+      return { success: false, error: `Rate limit reached (${cap}). Please try again later.` };
+    }
+  } else {
+    const rl = await rateLimitByIP(await clientIp(), GUEST_SUBMIT_LIMIT.max, GUEST_SUBMIT_LIMIT.windowMs, "submit:guest");
+    if (!rl.success) {
+      return { success: false, error: "আজকের জন্য সর্বোচ্চ রিপোর্ট সীমা পূর্ণ হয়েছে। পরে আবার চেষ্টা করুন।" };
+    }
+  }
+
+  // ── Guest contact details (all optional) ──────────────────────────────────
+  let guest: { name?: string; contact?: string; institution?: string; division?: string; district?: string } = {};
+  if (isGuest && payload.guest) {
+    const g = guestReporterSchema.safeParse({
+      name:        payload.guest.name        || undefined,
+      contact:     payload.guest.contact     || undefined,
+      institution: payload.guest.institution || undefined,
+      division:    payload.guest.division    || undefined,
+      district:    payload.guest.district    || undefined,
+    });
+    if (!g.success) return { success: false, error: "আপনার যোগাযোগের তথ্য সঠিকভাবে পূরণ করুন।" };
+    guest = g.data;
   }
 
   // ── Zod validation on all text fields ────────────────────────────────────
@@ -222,7 +282,7 @@ async function persistReport(
   const parsed = schema.safeParse(rawText);
   if (!parsed.success) {
     log("submission_validation_failed", {
-      userId,
+      userId: logId,
       status,
       issues: parsed.error.issues.map((i) => ({ path: i.path, code: i.code })),
     });
@@ -246,9 +306,9 @@ async function persistReport(
     return { success: false, error: "Too many files attached." };
   }
 
-  const fileError = await validateFileMetadata(allFiles, userId);
+  const fileError = await validateFileMetadata(allFiles, principal);
   if (fileError) {
-    log("submission_file_validation_failed", { userId, status, reason: fileError });
+    log("submission_file_validation_failed", { userId: logId, status, reason: fileError });
     return { success: false, error: fileError };
   }
 
@@ -276,6 +336,13 @@ async function persistReport(
     return { success: false, error: "Description is required for final submissions." };
   }
 
+  // ── Tracking code (final submissions only) ───────────────────────────────
+  const trackingCode = status === "PENDING" ? generateTrackingCode() : undefined;
+
+  const gName = guest.name        ? encrypt(guest.name)        : null;
+  const gCont = guest.contact     ? encrypt(guest.contact)     : null;
+  const gInst = guest.institution ? encrypt(guest.institution) : null;
+
   // ── DB transaction — all-or-nothing ──────────────────────────────────────
   let submission: { id: string };
   try {
@@ -284,6 +351,21 @@ async function persistReport(
         select: { id: true },
         data: {
           userId,
+          isGuest,
+          trackingHash: trackingCode ? hashTrackingCode(trackingCode) : null,
+
+          encryptedGuestName:        gName?.ciphertext ?? null,
+          guestNameIV:               gName?.iv         ?? null,
+          guestNameTag:              gName?.tag        ?? null,
+          encryptedGuestContact:     gCont?.ciphertext ?? null,
+          guestContactIV:            gCont?.iv         ?? null,
+          guestContactTag:           gCont?.tag        ?? null,
+          encryptedGuestInstitution: gInst?.ciphertext ?? null,
+          guestInstitutionIV:        gInst?.iv         ?? null,
+          guestInstitutionTag:       gInst?.tag        ?? null,
+          guestDivision:             guest.division    ?? null,
+          guestDistrict:             guest.district    ?? null,
+
           category:    d.category    as IncidentCategory,
           urgencyLevel: d.urgencyLevel as UrgencyLevel,
 
@@ -377,7 +459,7 @@ async function persistReport(
     });
   } catch (err) {
     log("submission_db_error", {
-      userId,
+      userId: logId,
       status,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -385,12 +467,12 @@ async function persistReport(
     return { success: false, error: "Failed to save your report. Please try again." };
   }
 
-  log("submission_created", { userId, submissionId: submission.id, status });
+  log("submission_created", { userId: logId, submissionId: submission.id, status });
 
   await audit({
     action:     status === "PENDING" ? "SUBMIT_REPORT" : "SAVE_DRAFT",
-    userId,
-    userName:   session.user.name,
+    userId:     userId ?? undefined,
+    userName:   session?.user.name ?? "Guest reporter",
     targetId:   submission.id,
     targetType: "SUBMISSION",
     details:    status === "PENDING"
@@ -398,7 +480,7 @@ async function persistReport(
       : `Saved draft ${submission.id.slice(0, 8)}`,
   });
 
-  return { success: true, submissionId: submission.id };
+  return { success: true, submissionId: submission.id, trackingCode };
 }
 
 // ─── Exported actions ─────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { isStaff } from "@/lib/roles";
 // ─── CSP ──────────────────────────────────────────────────────────────────────
 
 const isDev     = process.env.NODE_ENV !== "production";
+const GUEST_COOKIE = "pd_guest"; // keep in sync with lib/guest.ts
 const isVercel  = !!process.env.VERCEL;
 
 function buildCSP(nonce: string): string {
@@ -107,6 +108,7 @@ export async function middleware(req: NextRequest) {
   requestHeaders.set("Content-Security-Policy", buildCSP(nonce));
   const finish = (res: NextResponse) => { setSecurityHeaders(res, nonce); return res; };
   let sessionExpiry: Date | undefined;
+  let issueGuestCookie = false;
 
   // ── Request logging (skip static assets) ─────────────────────────────────────
   if (!pathname.startsWith("/_next/") && !pathname.includes(".")) {
@@ -140,8 +142,10 @@ export async function middleware(req: NextRequest) {
   if (isReport || isAdminPath || isAuthPage) {
     const session = await auth.api.getSession({ headers: req.headers });
 
-    if (isReport && !session) {
-      return finish(NextResponse.redirect(new URL("/login", req.url)));
+    // Guests may report without an account — they get a short-lived random
+    // cookie that binds their evidence uploads to the report they submit.
+    if (isReport && !session && !/^[0-9a-f]{64}$/.test(req.cookies.get(GUEST_COOKIE)?.value ?? "")) {
+      issueGuestCookie = true;
     }
 
     if (isAdminPath && pathname !== "/admin/login") {
@@ -162,6 +166,12 @@ export async function middleware(req: NextRequest) {
     res.cookies.set(AUTH_COOKIE_NAME, req.cookies.get(AUTH_COOKIE_NAME)!.value, {
       httpOnly: true, secure: !isDev, sameSite: "lax", path: "/",
       expires: sessionExpiry, maxAge: SESSION_DURATION_MS / 1000,
+    });
+  }
+  if (issueGuestCookie) {
+    res.cookies.set(GUEST_COOKIE, crypto.randomBytes(32).toString("hex"), {
+      httpOnly: true, secure: !isDev, sameSite: "strict", path: "/",
+      maxAge: 24 * 60 * 60,
     });
   }
   setSecurityHeaders(res, nonce);

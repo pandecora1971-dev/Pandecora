@@ -69,7 +69,8 @@ export interface SubmissionDetail {
   updatedAt:    string;
 
   submitter: {
-    id:              string;
+    isGuest:         boolean; // submitted without an account
+    id:              string;  // "" for guests
     name:            string;
     email:           string;
     phone:           string;
@@ -162,7 +163,8 @@ export async function getSubmission(id: string): Promise<GetSubmissionResult> {
     createdAt:    raw.createdAt.toISOString(),
     updatedAt:    raw.updatedAt.toISOString(),
 
-    submitter: {
+    submitter: user ? {
+      isGuest:         false,
       id:              user.id,
       name:            user.name,
       email:           safeDecrypt(user.encryptedEmail, user.emailIV, user.emailTag) ?? "[unavailable]",
@@ -176,6 +178,22 @@ export async function getSubmission(id: string): Promise<GetSubmissionResult> {
       district:        user.district,
       upazila:         user.upazila,
       specificAddress: user.specificAddress ?? null,
+    } : {
+      // Guest report — only what the reporter chose to share
+      isGuest:         true,
+      id:              "",
+      name:            safeDecrypt(raw.encryptedGuestName, raw.guestNameIV, raw.guestNameTag) ?? "Anonymous reporter",
+      email:           "—",
+      phone:           safeDecrypt(raw.encryptedGuestContact, raw.guestContactIV, raw.guestContactTag) ?? "Not provided",
+      role:            "GUEST",
+      institutionType: null,
+      universityType:  null,
+      institutionName: safeDecrypt(raw.encryptedGuestInstitution, raw.guestInstitutionIV, raw.guestInstitutionTag),
+      department:      null,
+      division:        raw.guestDivision ?? "—",
+      district:        raw.guestDistrict ?? "—",
+      upazila:         "—",
+      specificAddress: null,
     },
 
     evidenceFiles: evidenceFiles.map((f) => ({

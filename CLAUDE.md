@@ -49,8 +49,9 @@ app/
     login/           — /login
     signup/          — /signup (step 1: personal info)
     signup/location/ — /signup/location (step 2: institution + location)
+  (public)/track/    — /track (status lookup by tracking code, no login)
   (protected)/
-    report/          — /report (auth-gated, incident submission form)
+    report/          — /report (open to guests AND users; guests get a pd_guest cookie, no drafts, tracking code on submit)
   (admin)/
     admin/           — /admin (dashboard, sidebar layout)
     admin/users/     — user management table + delete modal

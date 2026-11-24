@@ -670,7 +670,7 @@ function SubmissionRowEl({ row }: { row: SubmissionRow }) {
         </p>
         <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] text-[#7e7e7e]">
-            {PROFESSION_LABELS[row.userRole] ?? row.userRole}
+            {row.userRole === "GUEST" ? "Guest report" : (PROFESSION_LABELS[row.userRole] ?? row.userRole)}
           </span>
           <span className="text-[#7e7e7e]/30">·</span>
           <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${row.institutionType ? (INSTITUTION_BADGE[row.institutionType] ?? "bg-gray-100 text-gray-600") : "bg-gray-100 text-gray-600"}`}>
