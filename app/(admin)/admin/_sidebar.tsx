@@ -101,7 +101,8 @@ function SidebarContent({
     } catch {
       // ignore network errors
     }
-    window.location.href = "/admin/login";
+    // "/" rather than the login page: its URL may be secret (ADMIN_LOGIN_PATH).
+    window.location.href = "/";
   }
 
   const roleLabel =

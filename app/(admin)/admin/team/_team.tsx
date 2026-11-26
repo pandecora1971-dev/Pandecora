@@ -8,6 +8,7 @@ import type { TeamMemberRow } from "./actions";
 interface Props {
   initialRows: TeamMemberRow[];
   isSuperAdmin: boolean;
+  loginPath: string;
 }
 
 function formatDate(iso: string) {
@@ -16,7 +17,7 @@ function formatDate(iso: string) {
   });
 }
 
-export default function TeamClient({ initialRows, isSuperAdmin }: Props) {
+export default function TeamClient({ initialRows, isSuperAdmin, loginPath }: Props) {
   const [rows, setRows] = useState<TeamMemberRow[]>(initialRows);
 
   // Promote form state
@@ -135,7 +136,7 @@ export default function TeamClient({ initialRows, isSuperAdmin }: Props) {
           <form onSubmit={handleCreate} className="space-y-4 px-6 py-5">
             <p className="text-sm text-[#7e7e7e]">
               Create a new sign-in for a staff member. They log in at{" "}
-              <span className="font-semibold text-[#25282b]">/admin/login</span> with this email and
+              <span className="font-semibold text-[#25282b]">{loginPath}</span> with this email and
               password — the account is ready to use immediately.
             </p>
 

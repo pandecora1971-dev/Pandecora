@@ -341,3 +341,28 @@ test("middleware forwards the same CSP nonce to Next.js and the browser", async 
   assert.equal(response.headers.get("Content-Security-Policy"), response.headers.get("x-middleware-request-content-security-policy"));
   assert.match(response.headers.get("Content-Security-Policy")!, /nonce-[A-Za-z0-9+/=]+/);
 });
+
+test("hidden staff login: secret path serves the login page, /admin paths 404 when signed out", async () => {
+  const { middleware } = await import("../middleware");
+  mock.method(console, "log", () => undefined);
+  process.env.ADMIN_LOGIN_PATH = "/secret-slug/login/";
+  try {
+    const rewriteOf = (r: Response) => r.headers.get("x-middleware-rewrite");
+    const secret = await middleware(new NextRequest("http://localhost/secret-slug/login"));
+    assert.equal(new URL(rewriteOf(secret)!).pathname, "/admin/login");
+    for (const path of ["/admin/login", "/admin", "/admin/team"]) {
+      const res = await middleware(new NextRequest("http://localhost" + path));
+      assert.equal(res.headers.get("location"), null, path + " must not redirect");
+      assert.equal(new URL(rewriteOf(res)!).pathname, "/__not-found", path);
+    }
+    stub(db.session, "findUnique", async () => sessionFixture({ ...user, role: "ADMIN" as never }));
+    stub(db.session, "update", async () => ({}));
+    const staff = await middleware(new NextRequest("http://localhost/admin/team", { headers: { Cookie: `sip_session=${token}` } }));
+    assert.equal(rewriteOf(staff), null);
+    assert.equal(staff.headers.get("location"), null);
+  } finally {
+    delete process.env.ADMIN_LOGIN_PATH;
+  }
+  const open = await middleware(new NextRequest("http://localhost/admin"));
+  assert.equal(new URL(open.headers.get("location")!).pathname, "/admin/login");
+});

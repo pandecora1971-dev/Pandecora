@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, validateSession } from "@/lib/session";
 import { isAdmin, canManageAdmins } from "@/lib/roles";
+import { adminLoginPath } from "@/lib/admin-login-path";
 import { getTeam } from "./actions";
 import TeamClient from "./_team";
 
@@ -21,5 +22,5 @@ export default async function TeamPage() {
   const result = await getTeam();
   const initialRows = result.success ? result.rows : [];
 
-  return <TeamClient initialRows={initialRows} isSuperAdmin={canManageAdmins(session.user.role)} />;
+  return <TeamClient initialRows={initialRows} isSuperAdmin={canManageAdmins(session.user.role)} loginPath={adminLoginPath()} />;
 }

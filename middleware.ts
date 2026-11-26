@@ -6,6 +6,7 @@ import { auth } from "@/lib/session";
 import { rateLimitByIP, LIMITS } from "@/lib/rate-limit";
 import { AUTH_COOKIE_NAME, SESSION_DURATION_MS } from "@/lib/session";
 import { isStaff } from "@/lib/roles";
+import { adminLoginPath, INTERNAL_ADMIN_LOGIN_PATH } from "@/lib/admin-login-path";
 
 // ─── CSP ──────────────────────────────────────────────────────────────────────
 
@@ -139,8 +140,26 @@ export async function middleware(req: NextRequest) {
   const isAdminPath = pathname.startsWith("/admin");
   const isAuthPage = pathname === "/login" || pathname.startsWith("/signup");
 
-  if (isReport || isAdminPath || isAuthPage) {
+  // Hidden staff login (ADMIN_LOGIN_PATH): the public URL is served by the
+  // /admin/login page, and the real /admin paths 404 for anyone signed out.
+  const loginPath   = adminLoginPath();
+  const loginHidden = loginPath !== INTERNAL_ADMIN_LOGIN_PATH;
+  const isLoginPage = pathname === loginPath;
+  // Rendered by Next's normal not-found page — identical to any unknown URL.
+  const notFound = () => finish(NextResponse.rewrite(new URL("/__not-found", req.url), { request: { headers: requestHeaders } }));
+
+  if (isReport || isAdminPath || isAuthPage || isLoginPage) {
     const session = await auth.api.getSession({ headers: req.headers });
+
+    if (loginHidden && isLoginPage) {
+      if (session) {
+        return finish(NextResponse.redirect(new URL(isStaff(session.user.role) ? "/admin" : "/report", req.url)));
+      }
+      return finish(NextResponse.rewrite(new URL(INTERNAL_ADMIN_LOGIN_PATH, req.url), { request: { headers: requestHeaders } }));
+    }
+    if (loginHidden && isAdminPath && (!session || !isStaff(session.user.role))) {
+      return notFound();
+    }
 
     // Guests may report without an account — they get a short-lived random
     // cookie that binds their evidence uploads to the report they submit.
