@@ -16,7 +16,7 @@
  *
  * Behaviour per account:
  *   - missing  → created, email marked verified
- *   - existing → role, password (and name, if given) set to the given values, email marked verified
+ *   - existing → role and password set to the given values, email marked verified
  * Encrypted profile data of existing accounts is left untouched.
  */
 
@@ -132,10 +132,7 @@ async function main() {
       if (existing) {
         await db.user.update({
           where: { id: existing.id },
-          data: {
-            role: spec.role, hashedPassword, emailVerified: true, emailVerifiedAt: now,
-            ...(spec.name ? { name: spec.name } : {}),
-          },
+          data: { role: spec.role, hashedPassword, emailVerified: true, emailVerifiedAt: now },
         });
         // Force re-login with the new credentials/role.
         await db.session.deleteMany({ where: { userId: existing.id } });
